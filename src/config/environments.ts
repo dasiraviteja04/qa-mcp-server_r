@@ -1,9 +1,8 @@
 /**
- * Environment-specific configuration
+ * Environment-specific configuration for UIAutomationTests (C# / Reqnroll / NUnit)
  */
 
 import * as path from 'path';
-import * as fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -11,65 +10,126 @@ const __dirname = path.dirname(__filename);
 
 export interface EnvironmentConfig {
   name: string;
-  playwrightProjectRoot: string;
-  reportOutputDir: string;
-  testEnvironment: string;
-  allowedTags: string[];
-  timeoutMs: number;
-  workers: number;
+  playwrightProjectRoot: string;   // root folder of the C# project
+  csprojFile: string;              // .csproj filename
+  runSettingsFile: string;         // .runsettings filename for this environment
+  featuresDir: string;             // absolute path to Features/ folder
+  reportOutputDir: string;         // where TRX + JSON reports are written
+  testEnvironment: string;         // ASPNETCORE_ENVIRONMENT value
+  allowedTags: string[];           // tags permitted to run in this environment
+  timeoutMs: number;               // per-test timeout hint (ms)
+  workers: number;                 // max parallel workers
 }
 
-// Get the directory where this server is running from (go up to project root)
+// Override project root via env var, e.g. when running in CI
+const getCSharpProjectRoot = (): string => {
+  return process.env.DOTNET_PROJECT_ROOT ||
+    path.join(
+      'C:', 'Users', 'Ravi Teja Dasi', 'source', 'repos',
+      'Explore', 'Playwright_AutomationDB', 'Explore', 'Code',
+      'UIAutomationTests', 'UIAutomationTests'
+    );
+};
+
 const getServerRoot = (): string => {
   // __dirname is src/config, go up 2 levels to project root
   return path.join(__dirname, '..', '..');
 };
 
-// You can set PLAYWRIGHT_PROJECT_ROOT env var to override the default path
-const getPlaywrightRoot = (): string => {
-  return process.env.PLAYWRIGHT_PROJECT_ROOT || 
-    path.join(process.cwd(), '..', 'playwright-automation');
-};
-
-// Get reports directory - use absolute path from server root
 const getReportsDir = (): string => {
   return path.join(getServerRoot(), 'reports');
 };
 
+// Every tag that exists across all feature files
+const ALL_TAGS: string[] = [
+  'regression',
+  'production',
+  'staging',
+  'chargeoff',
+  'paidoffsettlement',
+  'ontracksettlement',
+  'payoff',
+  'editloan',
+  'partialpayment',
+  'regenschedule',
+  'paymentextenstion',
+  'outgoingemail',
+  'outgoingsms',
+  'vwf',
+  'vportal',
+  'postleads',
+  'search',
+  'couponhive',
+  'couponhive-create',
+  'couponhive-bulk',
+  'couponhive-audit',
+  'couponhive-ui',
+  'couponhive-ui-create',
+  'couponhive-ui-export',
+  'couponhive-ui-audit',
+  'couponhive-ui-bulk'
+];
+
 export const ENVIRONMENTS: { [key: string]: EnvironmentConfig } = {
+  // auto_qa – local development / auto QA database
   development: {
     name: 'development',
-    playwrightProjectRoot: getPlaywrightRoot(),
+    playwrightProjectRoot: getCSharpProjectRoot(),
+    csprojFile: 'UIAutomationTests.csproj',
+    runSettingsFile: 'auto.runsettings',
+    featuresDir: path.join(getCSharpProjectRoot(), 'Features'),
     reportOutputDir: getReportsDir(),
-    testEnvironment: 'staging',
-    allowedTags: ['critical', 'smoke', 'regression', 'e2e', 'api'],
-    timeoutMs: 30000,
-    workers: 4
+    testEnvironment: 'auto_qa',
+    allowedTags: ALL_TAGS,
+    timeoutMs: 300000,   // 5 min – C# tests are slower than JS
+    workers: 2           // matches project MaxCpuCount=2
   },
 
+  // staging – explorecredit staging environment
   staging: {
     name: 'staging',
-    playwrightProjectRoot: getPlaywrightRoot(),
+    playwrightProjectRoot: getCSharpProjectRoot(),
+    csprojFile: 'UIAutomationTests.csproj',
+    runSettingsFile: 'staging.runsettings',
+    featuresDir: path.join(getCSharpProjectRoot(), 'Features'),
     reportOutputDir: getReportsDir(),
     testEnvironment: 'staging',
-    allowedTags: ['critical', 'smoke', 'regression', 'e2e', 'api'],
-    timeoutMs: 60000,
+    allowedTags: ALL_TAGS,
+    timeoutMs: 300000,
     workers: 2
   },
 
+  // production – explorecredit production; only @production health checks allowed
   production: {
     name: 'production',
-    playwrightProjectRoot: getPlaywrightRoot(),
+    playwrightProjectRoot: getCSharpProjectRoot(),
+    csprojFile: 'UIAutomationTests.csproj',
+    runSettingsFile: 'production.runsettings',
+    featuresDir: path.join(getCSharpProjectRoot(), 'Features'),
     reportOutputDir: getReportsDir(),
     testEnvironment: 'production',
-    allowedTags: ['critical', 'smoke'], // Only critical and smoke in prod
+    allowedTags: ['production'],   // strictly limited to production health checks
     timeoutMs: 120000,
-    workers: 1 // Single worker for production
+    workers: 1                     // sequential in production
+  },
+
+  // qafence – isolated QA fence environment
+  qafence: {
+    name: 'qafence',
+    playwrightProjectRoot: getCSharpProjectRoot(),
+    csprojFile: 'UIAutomationTests.csproj',
+    runSettingsFile: 'qafence.runsettings',
+    featuresDir: path.join(getCSharpProjectRoot(), 'Features'),
+    reportOutputDir: getReportsDir(),
+    testEnvironment: 'qafence',
+    allowedTags: ALL_TAGS,
+    timeoutMs: 300000,
+    workers: 2
   }
 };
 
 /**
- * Get environment config
+ * Get environment config – defaults to development
  */
 export const getEnvironmentConfig = (env?: string): EnvironmentConfig => {
   const environment = env || process.env.TEST_ENV || 'development';
