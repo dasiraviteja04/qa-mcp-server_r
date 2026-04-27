@@ -26,7 +26,14 @@ export interface RunTestsOptions {
   scenario?:       string;
   workers?:        number;
   timeout?:        number;
+  /** Override the runsettings file for this run — e.g. 'mobile.runsettings' */
   runSettingsFile?: string;
+  /**
+   * Extra environment variable overrides injected only for this run.
+   * Used by mobile mode to pass MOBILE_MODE=true + MOBILE_DEVICE_NAME
+   * for custom device names not covered by a dedicated runsettings file.
+   */
+  envOverrides?:   Record<string, string>;
 }
 
 export interface RunResult {
@@ -104,7 +111,13 @@ export class PlaywrightService {
     const screenshotsBefore = this.listScreenshots(screenshotDir);
 
     // ── Spawn dotnet test (async — does NOT block the event loop) ─────────
-    const { success, output } = await this.spawnDotnet(args, this.config.projectRoot);
+    // Merge envOverrides into process env so MOBILE_MODE / MOBILE_DEVICE_NAME
+    // are visible to the child dotnet process (and thus to Hooks.cs).
+    const { success, output } = await this.spawnDotnet(
+      args,
+      this.config.projectRoot,
+      options.envOverrides
+    );
 
     // ── Parse TRX into JSON regardless of exit code ───────────────────────
     if (fs.existsSync(trxPath)) {
@@ -152,10 +165,15 @@ export class PlaywrightService {
   /**
    * Spawn `dotnet <args>` and resolve when the process exits.
    * stdout + stderr are captured and returned as a single string.
+   *
+   * envOverrides are merged into the child process environment on top of
+   * process.env — used to inject MOBILE_MODE + MOBILE_DEVICE_NAME for
+   * custom device names without needing a dedicated runsettings file.
    */
   private spawnDotnet(
     args: string[],
-    cwd: string
+    cwd: string,
+    envOverrides: Record<string, string> = {}
   ): Promise<{ success: boolean; output: string }> {
     return new Promise(resolve => {
       const chunks: string[] = [];
@@ -163,7 +181,7 @@ export class PlaywrightService {
       const child = spawn('dotnet', args, {
         cwd,
         shell: false,
-        env: process.env
+        env: { ...process.env, ...envOverrides }
       });
 
       child.stdout.on('data', (data: Buffer) => chunks.push(data.toString()));

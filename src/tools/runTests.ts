@@ -8,10 +8,19 @@
  *   tags     – Gherkin category tags, e.g. "couponhive-ui" or ["couponhive-ui","regression"]
  *   filter   – Raw VSTest filter, e.g. "FullyQualifiedName~BulkCoupon"
  *   scenario – Single scenario name (auto-wrapped as FullyQualifiedName~<value>)
+ *   device   – Mobile device name for emulation, e.g. "iPhone 14", "Pixel 5", "iPad Pro 11"
+ *              Maps to the correct mobile runsettings file automatically.
+ *              Omit or leave blank for desktop mode (auto.runsettings).
  *   workers  – Max parallel workers (capped by env config)
  *   timeout  – Timeout hint in ms (capped by env config)
  *
  * Filter priority: filter > scenario > tags
+ * Device mapping:
+ *   "iPhone 14"   → mobile.runsettings
+ *   "Pixel 5"     → mobile-pixel.runsettings
+ *   "iPad Pro 11" → mobile-tablet.runsettings
+ *   (any other)   → mobile.runsettings with MOBILE_DEVICE_NAME override via env
+ *   (omitted)     → auto.runsettings (desktop)
  */
 
 import { PlaywrightService } from '../services/playwright.service.js';
@@ -130,6 +139,7 @@ export async function runTests(input?: ToolInput): Promise<ToolOutput> {
     let tags: string[] = [];
     let filter   = typeof input?.filter   === 'string' ? input.filter   : '';
     let scenario = typeof input?.scenario === 'string' ? input.scenario : '';
+    let device   = typeof input?.device   === 'string' ? input.device.trim() : '';
     let workers  = config.workers;
     let timeout  = config.timeoutMs;
 
@@ -159,10 +169,36 @@ export async function runTests(input?: ToolInput): Promise<ToolOutput> {
       }
     }
 
+    // ── Resolve runsettings based on device ──────────────────────────────
+    // Maps known device names to their pre-configured runsettings files.
+    // For unlisted devices we use mobile.runsettings and pass MOBILE_DEVICE_NAME
+    // as an environment variable override so Hooks.cs picks up the custom device.
+    let runSettingsFile = config.runSettingsFile; // default: auto.runsettings (desktop)
+    let mobileEnvOverride: Record<string, string> = {};
+    const isMobileRun = device.length > 0;
+
+    if (isMobileRun) {
+      const deviceLower = device.toLowerCase();
+      if (deviceLower.includes('pixel')) {
+        runSettingsFile = 'mobile-pixel.runsettings';
+      } else if (deviceLower.includes('ipad') || deviceLower.includes('tablet')) {
+        runSettingsFile = 'mobile-tablet.runsettings';
+      } else {
+        // iPhone 14, iPhone 14 Pro Max, Galaxy S9+, Nexus 10, custom names etc.
+        runSettingsFile = 'mobile.runsettings';
+        // Pass the exact device name so Hooks.cs uses it instead of the default "iPhone 14"
+        mobileEnvOverride = {
+          MOBILE_MODE:        'true',
+          MOBILE_DEVICE_NAME: device
+        };
+      }
+    }
+
     // ── Build header ─────────────────────────────────────────────────────
     let header = `🚀 Running UIAutomationTests\n\n`;
     header    += `Environment : ${config.name} (${config.testEnvironment})\n`;
-    header    += `Run settings: ${config.runSettingsFile}\n`;
+    header    += `Mode        : ${isMobileRun ? `📱 Mobile — ${device}` : '🖥️  Desktop'}\n`;
+    header    += `Run settings: ${runSettingsFile}\n`;
 
     if (filter)        header += `Filter      : ${filter}\n`;
     else if (scenario) header += `Scenario    : ${scenario}\n`;
@@ -173,7 +209,15 @@ export async function runTests(input?: ToolInput): Promise<ToolOutput> {
     header += `⏳ Starting dotnet test — this may take several minutes...\n`;
 
     // ── Execute (async — event loop stays alive) ──────────────────────────
-    const result = await playwright.runTests({ tags, filter, scenario, workers, timeout });
+    const result = await playwright.runTests({
+      tags,
+      filter,
+      scenario,
+      workers,
+      timeout,
+      runSettingsFile,
+      envOverrides: mobileEnvOverride
+    });
 
     // ── Parse report and format output ────────────────────────────────────
     const report = playwright.getLatestReport();

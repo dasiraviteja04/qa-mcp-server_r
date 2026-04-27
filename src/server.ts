@@ -31,7 +31,7 @@ mcpServer.registerTool(
 mcpServer.registerTool(
   "run_tests",
   {
-    description: "Execute dotnet test (UIAutomationTests / Reqnroll / NUnit / Playwright C#) and return structured pass/fail results with screenshot paths.\n\nFilter priority: filter > scenario > tags.\n\nExamples:\n  run by tag:      { tags: 'couponhive-ui' }\n  run by tag:      { tags: ['couponhive-ui-export'] }\n  run by scenario: { scenario: 'CreateSingleCoupon' }\n  raw VSTest:      { filter: 'FullyQualifiedName~BulkCoupon&TestCategory=regression' }",
+    description: "Execute dotnet test (UIAutomationTests / Reqnroll / NUnit / Playwright C#) and return structured pass/fail results with screenshot paths.\n\nFilter priority: filter > scenario > tags.\nDevice routing: iPhone 14 → mobile.runsettings | Pixel 5 → mobile-pixel.runsettings | iPad Pro 11 → mobile-tablet.runsettings | omit → auto.runsettings (desktop)\n\nExamples:\n  Desktop run:    { tags: 'couponhive-ui' }\n  Mobile iPhone:  { tags: 'couponhive-ui', device: 'iPhone 14' }\n  Mobile Android: { tags: 'couponhive-ui', device: 'Pixel 5' }\n  Mobile Tablet:  { tags: 'couponhive-ui', device: 'iPad Pro 11' }\n  Single scenario desktop: { scenario: 'CreateSingleCoupon' }\n  Single scenario mobile:  { scenario: 'CreateSingleCoupon', device: 'iPhone 14' }",
     inputSchema: z.object({
       tags: z.union([z.string(), z.array(z.string())]).optional()
         .describe("Gherkin category tags to filter tests, e.g. 'couponhive-ui' or ['couponhive-ui-export','regression']. Maps to NUnit TestCategory filter."),
@@ -39,6 +39,8 @@ mcpServer.registerTool(
         .describe("Raw VSTest --filter expression passed verbatim, e.g. 'FullyQualifiedName~BulkCoupon' or 'TestCategory=regression&FullyQualifiedName~Export'. Takes priority over tags."),
       scenario: z.string().optional()
         .describe("Single scenario name (partial match). Auto-wrapped as FullyQualifiedName~<value>. Takes priority over tags. Example: 'CreateSingleCouponViaUI'"),
+      device: z.string().optional()
+        .describe("Playwright device name for mobile emulation. Omit for desktop. Examples: 'iPhone 14', 'iPhone 14 Pro Max', 'Pixel 5', 'Galaxy S9+', 'iPad Pro 11', 'Nexus 10'. Automatically selects the correct mobile runsettings file."),
       workers: z.number().optional()
         .describe("Max parallel workers. Capped by environment config (default 2)."),
       timeout: z.number().optional()
