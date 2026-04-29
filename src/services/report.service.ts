@@ -252,6 +252,77 @@ export class ReportService {
   }
 
   /**
+   * Build a map of testName → failure rate percentage across ALL stored runs.
+   * A rate of 80 means the test failed in 80% of runs where it appeared.
+   */
+  getFlakinessMap(): Map<string, number> {
+    const reports = this.getAllReports();
+    if (reports.length === 0) return new Map();
+
+    const runCount  = new Map<string, number>(); // testName → how many runs included it
+    const failCount = new Map<string, number>(); // testName → how many of those failed
+
+    for (const report of reports) {
+      for (const test of report.tests) {
+        runCount.set(test.name,  (runCount.get(test.name)  ?? 0) + 1);
+        if (test.status === 'failed') {
+          failCount.set(test.name, (failCount.get(test.name) ?? 0) + 1);
+        }
+      }
+    }
+
+    const map = new Map<string, number>();
+    for (const [name, runs] of runCount) {
+      const fails = failCount.get(name) ?? 0;
+      map.set(name, Math.round((fails / runs) * 100));
+    }
+    return map;
+  }
+
+  /**
+   * Determine the failure pattern for a single test across all stored runs.
+   *   'always-failing'  – failed in every run
+   *   'newly-failing'   – passed in earlier runs, failing in recent ones
+   *   'flaky'           – mixed pass/fail with no clear trend
+   *   'passing'         – no failures recorded
+   */
+  getRegressionPattern(
+    testName: string
+  ): 'always-failing' | 'newly-failing' | 'flaky' | 'passing' {
+    const reports = this.getAllReports();
+    const results = reports
+      .map(r => r.tests.find(t => t.name === testName))
+      .filter((t): t is NonNullable<typeof t> => t !== undefined);
+
+    if (results.length === 0) return 'passing';
+
+    const failCount = results.filter(t => t.status === 'failed').length;
+    if (failCount === 0) return 'passing';
+    if (failCount === results.length) return 'always-failing';
+
+    // Check if failures are concentrated in the most recent half
+    const mid = Math.floor(results.length / 2);
+    const recentFails = results.slice(0, mid).filter(t => t.status === 'failed').length;
+    const olderFails  = results.slice(mid).filter(t => t.status === 'failed').length;
+
+    if (recentFails > 0 && olderFails === 0) return 'newly-failing';
+    return 'flaky';
+  }
+
+  /**
+   * ISO timestamp of the first stored run where this test was seen failing.
+   * Returns null if the test has never failed in stored history.
+   */
+  getFirstFailureDate(testName: string): string | null {
+    const reports = this.getAllReports().reverse(); // oldest first
+    for (const report of reports) {
+      const test = report.tests.find(t => t.name === testName && t.status === 'failed');
+      if (test) return report.timestamp;
+    }
+    return null;
+  }
+
+  /**
    * Classify failures from the latest report using historical data.
    *
    * Classification rules:

@@ -25,7 +25,12 @@
 
 import { PlaywrightService } from '../services/playwright.service.js';
 import { PolicyService } from '../services/policy.service.js';
+import { ReportService } from '../services/report.service.js';
+import { ResearchService } from '../services/research.service.js';
+import { GitService } from '../services/git.service.js';
+import { CoverageService } from '../services/coverage.service.js';
 import type { ToolInput, ToolOutput } from '../types/mcp.types.js';
+import type { ResearchReport } from '../types/research.types.js';
 import { getEnvironmentConfig } from '../config/environments.js';
 import * as path from 'path';
 
@@ -128,6 +133,34 @@ function formatReport(report: any, screenshots: string[]): string {
   return out;
 }
 
+function formatResearchOutput(report: ResearchReport): string {
+  const verdictIcon = { SAFE: '✅', CAUTION: '⚠️', BLOCK: '🚫' }[report.releaseVerdict];
+  let out = `\n${'═'.repeat(55)}\n`;
+  out += ` 🔬 AUTO-RESEARCH (${report.iterationsUsed} iterations)\n`;
+  out += `${'═'.repeat(55)}\n\n`;
+  out += `🚦 Verdict: ${verdictIcon} ${report.releaseVerdict}\n`;
+  out += `   ${report.verdictReason}\n\n`;
+  if (report.findings.length > 0) {
+    out += `🔍 Findings (${report.findings.length}):\n`;
+    for (const f of report.findings.slice(0, 6)) {
+      out += `  • [${f.severity}] ${f.title}\n`;
+      out += `    → ${f.suggestedAction}\n`;
+    }
+    if (report.findings.length > 6) out += `  ...and ${report.findings.length - 6} more\n`;
+  }
+  if (report.coverageGaps.length > 0) {
+    out += `\n📂 Coverage Gaps (${report.coverageGaps.length}):\n`;
+    for (const g of report.coverageGaps.slice(0, 3)) {
+      out += `  • ${g.area} — ${g.scenarioCount} scenario(s) | ${g.recommendation}\n`;
+    }
+  }
+  if (report.suggestedNextSteps.length > 0) {
+    out += `\n📋 Next Steps:\n`;
+    report.suggestedNextSteps.slice(0, 4).forEach((s, i) => out += `  ${i + 1}. ${s}\n`);
+  }
+  return out;
+}
+
 // ── Main tool export ─────────────────────────────────────────────────────────
 
 export async function runTests(input?: ToolInput): Promise<ToolOutput> {
@@ -140,6 +173,7 @@ export async function runTests(input?: ToolInput): Promise<ToolOutput> {
     let filter   = typeof input?.filter   === 'string' ? input.filter   : '';
     let scenario = typeof input?.scenario === 'string' ? input.scenario : '';
     let device   = typeof input?.device   === 'string' ? input.device.trim() : '';
+    let doAutoResearch = input?.autoResearch === true;
     let workers  = config.workers;
     let timeout  = config.timeoutMs;
 
@@ -232,6 +266,20 @@ export async function runTests(input?: ToolInput): Promise<ToolOutput> {
       body += result.consoleOutput.slice(-2000);
     } else {
       body = formatReport(report, result.screenshots);
+
+      // ── AutoResearch (optional) ────────────────────────────────────────
+      if (doAutoResearch && report.failed > 0) {
+        try {
+          const reportService   = new ReportService(config.reportOutputDir);
+          const gitService      = new GitService(config.playwrightProjectRoot);
+          const coverageService = new CoverageService(config.featuresDir, config.playwrightProjectRoot);
+          const researchService = new ResearchService(reportService, gitService, coverageService, config.playwrightProjectRoot);
+          const researchReport  = await researchService.investigate(report);
+          body += '\n\n' + formatResearchOutput(researchReport);
+        } catch (researchErr: any) {
+          body += `\n\n⚠️  AutoResearch failed: ${researchErr.message}`;
+        }
+      }
 
       if (!result.success && report.failed === 0) {
         body += '\n⚠️  dotnet returned non-zero exit but no failing tests in TRX — ';

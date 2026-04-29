@@ -10,6 +10,8 @@ import { readSchema as readSchemaImpl } from './readSchema.js';
 import { readStepInventory as readStepInventoryImpl } from './readStepInventory.js';
 import { readPageSource as readPageSourceImpl } from './readPageSource.js';
 import { generateTests as generateTestsImpl } from './generateTests.js';
+import { autoResearch as autoResearchImpl } from './autoResearch.js';
+import { coverageAnalysis as coverageAnalysisImpl } from './coverageAnalysis.js';
 
 export async function listTests(input: any): Promise<any> {
   try {
@@ -111,6 +113,26 @@ export async function generateTests(input: any): Promise<any> {
         type: 'text',
         text: `Error generating test context: ${error.message}`
       }]
+    };
+  }
+}
+
+export async function autoResearch(input: any): Promise<any> {
+  try {
+    return await autoResearchImpl(input);
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error in auto_research: ${error.message}` }]
+    };
+  }
+}
+
+export async function coverageAnalysis(input: any): Promise<any> {
+  try {
+    return await coverageAnalysisImpl(input);
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error in coverage_analysis: ${error.message}` }]
     };
   }
 }

@@ -8,7 +8,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { listTests, runTests, getFailures, getReleaseRisk, readSchema, readStepInventory, readPageSource, generateTests } from "./tools/simple-tools.js";
+import { listTests, runTests, getFailures, getReleaseRisk, readSchema, readStepInventory, readPageSource, generateTests, autoResearch, coverageAnalysis } from "./tools/simple-tools.js";
 
 const mcpServer = new McpServer({
   name: "qa-intelligence-explorecredit",
@@ -44,7 +44,9 @@ mcpServer.registerTool(
       workers: z.number().optional()
         .describe("Max parallel workers. Capped by environment config (default 2)."),
       timeout: z.number().optional()
-        .describe("Per-test timeout hint in milliseconds. Capped by environment config (default 300000).")
+        .describe("Per-test timeout hint in milliseconds. Capped by environment config (default 300000)."),
+      autoResearch: z.boolean().optional()
+        .describe("When true, automatically runs the research loop after tests complete and failures are found. Appends root-cause analysis, git correlation, and release verdict to the run output. Default: false.")
     })
   },
   async (input) => runTests(input)
@@ -125,6 +127,38 @@ mcpServer.registerTool(
   async (input) => generateTests(input)
 );
 
+// Register auto_research tool
+mcpServer.registerTool(
+  "auto_research",
+  {
+    description: "Run the AutoResearch loop on the latest test execution. Investigates failures, correlates with git history, scans for coverage gaps, and returns a ResearchReport with a release verdict (SAFE / CAUTION / BLOCK) and suggested next steps — without further prompting.",
+    inputSchema: z.object({
+      depth: z.enum(['shallow', 'deep']).optional()
+        .describe("Research depth. 'shallow' runs 3 iterations (classify + flakiness + verdict). 'deep' runs all 5 (adds git correlation + coverage gaps). Default: 'deep'."),
+      includeGit: z.boolean().optional()
+        .describe("Include git commit correlation analysis. Default: true."),
+      includeCoverage: z.boolean().optional()
+        .describe("Include coverage gap analysis for recently changed files. Default: true.")
+    })
+  },
+  async (input) => autoResearch(input)
+);
+
+// Register coverage_analysis tool
+mcpServer.registerTool(
+  "coverage_analysis",
+  {
+    description: "Scan recently changed source files against .feature files to find test coverage gaps. Returns a list of changed areas with zero or insufficient scenario coverage.",
+    inputSchema: z.object({
+      since: z.string().optional()
+        .describe("How far back to look in git history. Examples: '7d', '14d', '30d'. Default: '14d'."),
+      area: z.string().optional()
+        .describe("Optional: limit analysis to a specific feature area name. E.g. 'CouponExpiry', 'AuditLogger'.")
+    })
+  },
+  async (input) => coverageAnalysis(input)
+);
+
 async function main() {
   const transport = new StdioServerTransport();
   await mcpServer.connect(transport);
@@ -140,6 +174,9 @@ async function main() {
   console.error("  • read_step_inventory: All existing [Given]/[When]/[Then] bindings in .cs files");
   console.error("  • read_page_source:    Headless browser → interactive elements + selectors");
   console.error("  • generate_tests:      Assemble full context for Claude to generate artifacts");
+  console.error("  AutoResearch:");
+  console.error("  • auto_research:       Investigate failures, correlate git, find coverage gaps");
+  console.error("  • coverage_analysis:   Find test coverage gaps for recently changed files");
   console.error("\nServer is ready for MCP connections on stdio...");
 }
 
