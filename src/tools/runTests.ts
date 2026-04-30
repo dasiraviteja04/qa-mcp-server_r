@@ -272,8 +272,9 @@ export async function runTests(input?: ToolInput): Promise<ToolOutput> {
         try {
           const reportService   = new ReportService(config.reportOutputDir);
           const gitService      = new GitService(config.playwrightProjectRoot);
+          const appGitService   = config.appCodeRoot ? new GitService(config.appCodeRoot) : undefined;
           const coverageService = new CoverageService(config.featuresDir, config.playwrightProjectRoot);
-          const researchService = new ResearchService(reportService, gitService, coverageService, config.playwrightProjectRoot);
+          const researchService = new ResearchService(reportService, gitService, coverageService, config.playwrightProjectRoot, appGitService);
           const researchReport  = await researchService.investigate(report);
           body += '\n\n' + formatResearchOutput(researchReport);
         } catch (researchErr: any) {

@@ -17,10 +17,19 @@ interface CoverageAnalysisInput {
   area?: string;    // limit to one feature area
 }
 
+function deduplicateCommits(commits: import('../types/research.types.js').GitCommit[]): import('../types/research.types.js').GitCommit[] {
+  const seen = new Set<string>();
+  return commits.filter(c => {
+    if (seen.has(c.hash)) return false;
+    seen.add(c.hash);
+    return true;
+  });
+}
+
 function parseDays(since?: string): number {
-  if (!since) return 14;
+  if (!since) return 3;
   const match = since.match(/^(\d+)d?$/i);
-  return match ? parseInt(match[1] ?? '14', 10) : 14;
+  return match ? parseInt(match[1] ?? '3', 10) : 3;
 }
 
 function formatCoverageReport(gaps: CoverageGap[], since: number, area?: string): string {
@@ -72,10 +81,11 @@ export async function coverageAnalysis(input?: CoverageAnalysisInput): Promise<T
     const days    = parseDays(input?.since);
     const area    = input?.area;
 
-    const gitService      = new GitService(config.playwrightProjectRoot);
+    const testGitService  = new GitService(config.playwrightProjectRoot);
+    const appGitService   = config.appCodeRoot ? new GitService(config.appCodeRoot) : null;
     const coverageService = new CoverageService(config.featuresDir, config.playwrightProjectRoot);
 
-    if (!gitService.isGitAvailable()) {
+    if (!testGitService.isGitAvailable()) {
       return {
         content: [{
           type: 'text',
@@ -84,7 +94,13 @@ export async function coverageAnalysis(input?: CoverageAnalysisInput): Promise<T
       };
     }
 
-    const commits = await gitService.getRecentCommits(days);
+    const testCommits = await testGitService.getRecentCommits(days);
+    const appCommits  = appGitService?.isGitAvailable()
+      ? await appGitService.getRecentCommits(days)
+      : [];
+
+    const commits = deduplicateCommits([...testCommits, ...appCommits]);
+
     if (commits.length === 0) {
       return {
         content: [{

@@ -121,8 +121,9 @@ export async function autoResearch(input?: AutoResearchInput): Promise<ToolOutpu
 
     const reportService   = new ReportService(config.reportOutputDir);
     const gitService      = new GitService(config.playwrightProjectRoot);
+    const appGitService   = config.appCodeRoot ? new GitService(config.appCodeRoot) : undefined;
     const coverageService = new CoverageService(config.featuresDir, config.playwrightProjectRoot);
-    const researchService = new ResearchService(reportService, gitService, coverageService, config.playwrightProjectRoot);
+    const researchService = new ResearchService(reportService, gitService, coverageService, config.playwrightProjectRoot, appGitService);
 
     const latestReport = reportService.getLatestReport();
     if (!latestReport) {

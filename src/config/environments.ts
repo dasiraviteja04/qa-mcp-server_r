@@ -19,6 +19,7 @@ export interface EnvironmentConfig {
   allowedTags: string[];           // tags permitted to run in this environment
   timeoutMs: number;               // per-test timeout hint (ms)
   workers: number;                 // max parallel workers
+  appCodeRoot?: string;            // root of the application source repo (for coverage gap analysis)
 }
 
 // Override project root via env var, e.g. when running in CI
@@ -30,6 +31,12 @@ const getCSharpProjectRoot = (): string => {
       'UIAutomationTests', 'UIAutomationTests'
     );
 };
+
+// Root of the application source repo — used by GitService/CoverageService to detect
+// code changes in the app being tested (not just changes to the test project itself).
+const getAppCodeRoot = (): string =>
+  process.env.APP_CODE_ROOT ||
+  path.join('C:', 'Users', 'Ravi Teja Dasi', 'source', 'repos', 'Explore', 'Code', 'CouponHive');
 
 const getServerRoot = (): string => {
   // __dirname is src/config, go up 2 levels to project root
@@ -82,7 +89,8 @@ export const ENVIRONMENTS: { [key: string]: EnvironmentConfig } = {
     testEnvironment: 'auto_qa',
     allowedTags: ALL_TAGS,
     timeoutMs: 300000,   // 5 min – C# tests are slower than JS
-    workers: 2           // matches project MaxCpuCount=2
+    workers: 2,          // matches project MaxCpuCount=2
+    appCodeRoot: getAppCodeRoot()
   },
 
   // staging – explorecredit staging environment
@@ -96,7 +104,8 @@ export const ENVIRONMENTS: { [key: string]: EnvironmentConfig } = {
     testEnvironment: 'staging',
     allowedTags: ALL_TAGS,
     timeoutMs: 300000,
-    workers: 2
+    workers: 2,
+    appCodeRoot: getAppCodeRoot()
   },
 
   // production – explorecredit production; only @production health checks allowed
@@ -110,7 +119,8 @@ export const ENVIRONMENTS: { [key: string]: EnvironmentConfig } = {
     testEnvironment: 'production',
     allowedTags: ['production'],   // strictly limited to production health checks
     timeoutMs: 120000,
-    workers: 1                     // sequential in production
+    workers: 1,                    // sequential in production
+    appCodeRoot: getAppCodeRoot()
   },
 
   // qafence – isolated QA fence environment
@@ -124,7 +134,8 @@ export const ENVIRONMENTS: { [key: string]: EnvironmentConfig } = {
     testEnvironment: 'qafence',
     allowedTags: ALL_TAGS,
     timeoutMs: 300000,
-    workers: 2
+    workers: 2,
+    appCodeRoot: getAppCodeRoot()
   }
 };
 

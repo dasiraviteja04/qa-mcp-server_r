@@ -35,7 +35,8 @@ export class ResearchService {
     private reportService: ReportService,
     private gitService: GitService,
     private coverageService: CoverageService,
-    private projectRoot: string
+    private projectRoot: string,
+    private appGitService?: GitService
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -62,7 +63,11 @@ export class ResearchService {
 
     if (this.gitService.isGitAvailable()) {
       try {
-        recentCommits = await this.gitService.getRecentCommits(14);
+        const testCommits = await this.gitService.getRecentCommits(3);
+        const appCommits  = (this.appGitService?.isGitAvailable())
+          ? await this.appGitService.getRecentCommits(3)
+          : [];
+        recentCommits = this.deduplicateCommits([...testCommits, ...appCommits]);
         if (regressionFindings.length > 0 && recentCommits.length > 0) {
           const gitFindings = this.correlateWithGit(regressionFindings, recentCommits);
           findings.push(...gitFindings);
@@ -235,6 +240,15 @@ export class ResearchService {
     }
 
     return gitFindings;
+  }
+
+  private deduplicateCommits(commits: GitCommit[]): GitCommit[] {
+    const seen = new Set<string>();
+    return commits.filter(c => {
+      if (seen.has(c.hash)) return false;
+      seen.add(c.hash);
+      return true;
+    });
   }
 
   private extractKeywords(testName: string): string[] {
