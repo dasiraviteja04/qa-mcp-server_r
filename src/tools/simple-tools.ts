@@ -12,6 +12,7 @@ import { readPageSource as readPageSourceImpl } from './readPageSource.js';
 import { generateTests as generateTestsImpl } from './generateTests.js';
 import { autoResearch as autoResearchImpl } from './autoResearch.js';
 import { coverageAnalysis as coverageAnalysisImpl } from './coverageAnalysis.js';
+import { generateHtmlReport as generateHtmlReportImpl } from './generateHtmlReport.js';
 
 export async function listTests(input: any): Promise<any> {
   try {
@@ -133,6 +134,16 @@ export async function coverageAnalysis(input: any): Promise<any> {
   } catch (error: any) {
     return {
       content: [{ type: 'text', text: `Error in coverage_analysis: ${error.message}` }]
+    };
+  }
+}
+
+export async function generateHtmlReport(input: any): Promise<any> {
+  try {
+    return await generateHtmlReportImpl(input);
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error generating HTML report: ${error.message}` }]
     };
   }
 }

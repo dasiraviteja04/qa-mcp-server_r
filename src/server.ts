@@ -8,7 +8,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { listTests, runTests, getFailures, getReleaseRisk, readSchema, readStepInventory, readPageSource, generateTests, autoResearch, coverageAnalysis } from "./tools/simple-tools.js";
+import { listTests, runTests, getFailures, getReleaseRisk, readSchema, readStepInventory, readPageSource, generateTests, autoResearch, coverageAnalysis, generateHtmlReport } from "./tools/simple-tools.js";
+import { qaOrchestrate } from "./tools/qaOrchestrator.js";
 
 const mcpServer = new McpServer({
   name: "qa-intelligence-explorecredit",
@@ -159,10 +160,54 @@ mcpServer.registerTool(
   async (input) => coverageAnalysis(input)
 );
 
+// Register generate_html_report tool
+mcpServer.registerTool(
+  "generate_html_report",
+  {
+    description: "Generate a self-contained HTML QA report from the latest test run. Designed for sharing with BAs and managers — business-friendly test names, colour-coded release verdict, pass-rate trend chart, failure table grouped by feature area, screenshot gallery, and coverage gaps. Opens in any browser, printable to PDF.",
+    inputSchema: z.object({
+      title: z.string().optional()
+        .describe("Report title shown in the header. Default: 'CouponHive QA Report'."),
+      coverageText: z.string().optional()
+        .describe("Plain-text output from the coverage_analysis tool to embed in the Coverage Gaps section."),
+      riskText: z.string().optional()
+        .describe("Plain-text output from get_release_risk to supplement the verdict."),
+      openInBrowser: z.boolean().optional()
+        .describe("Open the generated HTML file in the default browser immediately after saving. Default: false."),
+      outputPath: z.string().optional()
+        .describe("Override the output file path. Default: <reportsDir>/report-<timestamp>.html.")
+    })
+  },
+  async (input) => generateHtmlReport(input)
+);
+
+// Register qa_orchestrate tool
+mcpServer.registerTool(
+  "qa_orchestrate",
+  {
+    description: "Intelligent QA agent that autonomously chains tools to analyze quality, detect failures, find coverage gaps, and generate test artifacts — without a fixed sequence. Decides dynamically which tools to call based on accumulated context. Returns a structured OrchestratorReport with risk level, coverage status, decisions taken, and generated artifact context.",
+    inputSchema: z.object({
+      featureArea: z.string().optional()
+        .describe("Feature module to target, e.g. 'CouponHive', 'ChargeOff'. When supplied, all analysis and generation is scoped to this area."),
+      pageUrl: z.string().optional()
+        .describe("URL to crawl for UI element selectors. When supplied, enables page_object artifact generation."),
+      tables: z.string().optional()
+        .describe("Comma-separated DB table names to include in schema context, e.g. 'Coupons,AuditLogs'. Omit for all tables."),
+      tags: z.string().optional()
+        .describe("Comma-separated Gherkin tags for generated scenarios, e.g. 'regression,couponhive-ui'. Defaults to 'regression'."),
+      isReleaseCheck: z.boolean().optional()
+        .describe("When true, includes get_release_risk assessment in the pipeline. Default: false."),
+      maxIterations: z.number().optional()
+        .describe("Safety cap on agent loop iterations. Default: 12.")
+    })
+  },
+  async (input) => qaOrchestrate(input) as any
+);
+
 async function main() {
   const transport = new StdioServerTransport();
   await mcpServer.connect(transport);
-  
+
   console.error("✓ QA Intelligence MCP Server started (explorecredit / UIAutomationTests)");
   console.error("  Execution & Reporting:");
   console.error("  • list_tests:          Parse .feature files, list all Gherkin scenarios");
@@ -177,6 +222,10 @@ async function main() {
   console.error("  AutoResearch:");
   console.error("  • auto_research:       Investigate failures, correlate git, find coverage gaps");
   console.error("  • coverage_analysis:   Find test coverage gaps for recently changed files");
+  console.error("  Reporting:");
+  console.error("  • generate_html_report: Self-contained HTML report for BA/manager sharing");
+  console.error("  Orchestration:");
+  console.error("  • qa_orchestrate:      Intelligent agent loop — dynamically chains all tools above");
   console.error("\nServer is ready for MCP connections on stdio...");
 }
 

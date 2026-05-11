@@ -74,7 +74,16 @@ const ALL_TAGS: string[] = [
   'couponhive-ui-create',
   'couponhive-ui-export',
   'couponhive-ui-audit',
-  'couponhive-ui-bulk'
+  'couponhive-ui-bulk',
+  'couponhive-ui-generate',
+  'couponhive-ui-filter',
+  'couponhive-ui-nav',
+  'couponhive-ui-get',
+  'couponhive-ui-edit',
+  'couponhive-ui-duplicate',
+  'couponhive-ui-status',
+  'couponhive-ui-tenant',
+  'couponhive-ui-rate'
 ];
 
 export const ENVIRONMENTS: { [key: string]: EnvironmentConfig } = {

@@ -67,6 +67,10 @@ export class ReportService {
         ignoreAttributes: false,
         attributeNamePrefix: '@_',
         removeNSPrefix: true,
+        // Raise entity-expansion limit so large full-suite TRX files parse correctly.
+        // fast-xml-parser v4 reads this from processEntities.maxTotalExpansions.
+        // The default 1000 is exceeded by full couponhive-ui suites (1000+ expansions).
+        processEntities: { enabled: true, maxTotalExpansions: 100_000 } as any,
         isArray: (name) =>
           ['UnitTestResult', 'UnitTest', 'TestCategoryItem'].includes(name)
       });
