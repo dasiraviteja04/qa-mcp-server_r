@@ -21,9 +21,11 @@
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.3",
+    "@types/pg": "^8.20.0",
     "express": "^5.2.1",
     "fast-xml-parser": "^4.5.0",
     "mssql": "^11.0.1",
+    "pg": "^8.20.0",
     "playwright": "^1.48.0",
     "zod": "^4.3.6"
   },

@@ -17,6 +17,7 @@ import * as fs   from 'fs';
 import * as path from 'path';
 import { FrameworkMemoryService } from '../services/frameworkMemory.service.js';
 import { LiveCrawlerService }     from '../services/liveCrawler.service.js';
+import { DbSchemaService }        from '../services/dbSchema.service.js';
 import type { ToolOutput }        from '../types/mcp.types.js';
 import type { FrameworkBlueprint, ScaffoldResult } from '../types/framework.types.js';
 
@@ -317,7 +318,7 @@ function paramName(typeName: string): string {
 // Main scaffold function
 // ---------------------------------------------------------------------------
 
-async function scaffold(input: ScaffoldInput): Promise<ScaffoldResult & { usedCrawl: boolean }> {
+async function scaffold(input: ScaffoldInput): Promise<ScaffoldResult & { usedCrawl: boolean; usedSchema: boolean }> {
   const service   = new FrameworkMemoryService();
   const blueprint = service.loadBlueprint(input.blueprint_name);
   const name      = input.new_project_name.trim();
@@ -355,11 +356,28 @@ async function scaffold(input: ScaffoldInput): Promise<ScaffoldResult & { usedCr
   // 2. Step definitions
   await write(`${name}Steps.cs`, genStepDefinition(blueprint, name));
 
-  // 3. DB helper (only if tables provided)
-  if (tables.length > 0) {
-    await write(`${name}DBHelper.cs`, genDbHelper(blueprint, name, tables));
-  } else {
-    warnings.push('DBHelper not generated — no db_tables provided. Pass db_tables to include it.');
+  // 3. DB helper — prefer real columns from a saved schema
+  const schemaSvc  = new DbSchemaService();
+  let   usedSchema = false;
+  if (schemaSvc.hasSchema(name)) {
+    try {
+      const schema   = schemaSvc.loadSchema(name);
+      const { content } = schemaSvc.buildDbHelperCs(schema, blueprint, warnings);
+      await write(`${name}DBHelper.cs`, content);
+      usedSchema = true;
+    } catch {
+      // Schema load failed — fall through
+    }
+  }
+  if (!usedSchema) {
+    if (tables.length > 0) {
+      await write(`${name}DBHelper.cs`, genDbHelper(blueprint, name, tables));
+    } else {
+      warnings.push(
+        'DBHelper not generated — no db_tables provided and no saved schema found. ' +
+        'Run read_db_schema first, or pass db_tables to scaffold_project.'
+      );
+    }
   }
 
   // 4. Feature file
@@ -371,7 +389,7 @@ async function scaffold(input: ScaffoldInput): Promise<ScaffoldResult & { usedCr
   // 6. .csproj
   await write(`${name}Tests.csproj`, genCsproj(blueprint, name));
 
-  return { filesGenerated, warnings, usedCrawl };
+  return { filesGenerated, warnings, usedCrawl, usedSchema };
 }
 
 // ---------------------------------------------------------------------------
@@ -390,7 +408,7 @@ export async function scaffoldProject(input: ScaffoldInput): Promise<ToolOutput>
       return { content: [{ type: 'text', text: '❌ output_path is required.' }], isError: true };
     }
 
-    const { usedCrawl, ...result } = await scaffold(input);
+    const { usedCrawl, usedSchema, ...result } = await scaffold(input);
     const name = input.new_project_name.trim();
 
     const lines: string[] = [
@@ -398,8 +416,11 @@ export async function scaffoldProject(input: ScaffoldInput): Promise<ToolOutput>
       ``,
       `📁 Output directory: ${input.output_path}`,
       usedCrawl
-        ? `🌐 Page object source: real selectors from memory/crawls/${name}-crawl.json`
-        : `📝 Page object source: placeholder template (run crawl_page to get real selectors)`,
+        ? `🌐 Page object : real selectors from memory/crawls/${name}-crawl.json`
+        : `📝 Page object : placeholder template (run crawl_page to get real selectors)`,
+      usedSchema
+        ? `🗄️  DBHelper     : real typed columns from memory/schemas/${name}-schema.json`
+        : `📝 DBHelper     : placeholder template (run read_db_schema to get real columns)`,
       ``,
       `📄 Files generated (${result.filesGenerated.length}):`,
       ...result.filesGenerated.map(f => `   • ${path.basename(f)}`),

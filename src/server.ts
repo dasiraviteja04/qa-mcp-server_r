@@ -8,7 +8,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { listTests, runTests, getFailures, getReleaseRisk, readSchema, readStepInventory, readPageSource, generateTests, autoResearch, coverageAnalysis, generateHtmlReport, scanFramework, scaffoldProject, listBlueprints, crawlPage, getCrawl, listCrawls } from "./tools/simple-tools.js";
+import { listTests, runTests, getFailures, getReleaseRisk, readSchema, readStepInventory, readPageSource, generateTests, autoResearch, coverageAnalysis, generateHtmlReport, scanFramework, scaffoldProject, listBlueprints, crawlPage, getCrawl, listCrawls, readDbSchema, getSchema, listSchemas } from "./tools/simple-tools.js";
 import { qaOrchestrate } from "./tools/qaOrchestrator.js";
 
 const mcpServer = new McpServer({
@@ -227,6 +227,48 @@ mcpServer.registerTool(
   async (input) => generateHtmlReport(input)
 );
 
+// Register read_db_schema tool
+mcpServer.registerTool(
+  "read_db_schema",
+  {
+    description: "Connect to a SQL Server or PostgreSQL database, read INFORMATION_SCHEMA.COLUMNS for the specified tables, map each column to its C# type, save memory/schemas/{project_name}-schema.json, and optionally generate a fully-typed {ProjectName}DBHelper.cs with model classes and query method stubs. Connection string is read from an environment variable — never passed as a literal.",
+    inputSchema: z.object({
+      project_name: z.string()
+        .describe("Project name for this schema, e.g. 'BillingPortal'. Used as the schema key and C# class prefix."),
+      connection_env_key: z.string()
+        .describe("Name of the environment variable that holds the DB connection string, e.g. 'DB_CONNECTION_STRING'. SQL Server format: 'Server=host;Database=db;User Id=sa;Password=xxx;'. PostgreSQL format: 'postgresql://user:pass@host:5432/db'."),
+      tables: z.array(z.string())
+        .describe("Table names to read, e.g. ['Invoices', 'BillingAccounts', 'PaymentHistory']."),
+      blueprint_name: z.string().optional()
+        .describe("Name of a saved framework blueprint to use for DBHelper generation, e.g. 'CouponHive'. If omitted, schema JSON is saved but no .cs file is generated.")
+    })
+  },
+  async (input) => readDbSchema(input)
+);
+
+// Register get_schema tool
+mcpServer.registerTool(
+  "get_schema",
+  {
+    description: "Read the saved DB schema JSON for a project from memory/schemas/{project_name}-schema.json. Returns the full structured schema including all tables, columns, C# types, PK/FK flags. Used by scaffold_project internally to generate typed DBHelper files.",
+    inputSchema: z.object({
+      project_name: z.string()
+        .describe("Project name whose schema to retrieve, e.g. 'BillingPortal'.")
+    })
+  },
+  async (input) => getSchema(input)
+);
+
+// Register list_schemas tool
+mcpServer.registerTool(
+  "list_schemas",
+  {
+    description: "List all saved DB schemas in memory/schemas/. Returns project name, read date, database type (SQL Server / PostgreSQL), and table count for each. Use this to check if a schema exists before scaffold_project or to decide whether to re-read.",
+    inputSchema: z.object({})
+  },
+  async (input) => listSchemas(input)
+);
+
 // Register crawl_page tool
 mcpServer.registerTool(
   "crawl_page",
@@ -319,6 +361,10 @@ async function main() {
   console.error("  • scan_framework:       Scan project → extract patterns → save blueprint");
   console.error("  • scaffold_project:     Load blueprint → generate new project skeleton");
   console.error("  • list_blueprints:      List all saved framework blueprints");
+  console.error("  DB Schema Integration:");
+  console.error("  • read_db_schema:       Connect to DB → read INFORMATION_SCHEMA → save + generate DBHelper.cs");
+  console.error("  • get_schema:           Read saved schema JSON for a project");
+  console.error("  • list_schemas:         List all saved DB schemas");
   console.error("  Live Page Crawler:");
   console.error("  • crawl_page:           Real browser → discover elements → generate Page.cs");
   console.error("  • get_crawl:            Read saved crawl JSON for a project");
