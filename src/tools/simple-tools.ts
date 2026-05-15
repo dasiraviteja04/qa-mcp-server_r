@@ -16,6 +16,9 @@ import { generateHtmlReport as generateHtmlReportImpl } from './generateHtmlRepo
 import { scanFramework as scanFrameworkImpl }           from './scanFramework.js';
 import { scaffoldProject as scaffoldProjectImpl }       from './scaffoldProject.js';
 import { listBlueprints as listBlueprintsImpl }         from './listBlueprints.js';
+import { crawlPage  as crawlPageImpl  }                 from './crawlPage.js';
+import { getCrawl   as getCrawlImpl   }                 from './getCrawl.js';
+import { listCrawls as listCrawlsImpl }                 from './listCrawls.js';
 
 export async function listTests(input: any): Promise<any> {
   try {
@@ -177,6 +180,36 @@ export async function listBlueprints(input: any): Promise<any> {
   } catch (error: any) {
     return {
       content: [{ type: 'text', text: `Error in list_blueprints: ${error.message}` }]
+    };
+  }
+}
+
+export async function crawlPage(input: any): Promise<any> {
+  try {
+    return await crawlPageImpl(input);
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error in crawl_page: ${error.message}` }]
+    };
+  }
+}
+
+export async function getCrawl(input: any): Promise<any> {
+  try {
+    return await getCrawlImpl(input);
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error in get_crawl: ${error.message}` }]
+    };
+  }
+}
+
+export async function listCrawls(input: any): Promise<any> {
+  try {
+    return await listCrawlsImpl(input);
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error in list_crawls: ${error.message}` }]
     };
   }
 }

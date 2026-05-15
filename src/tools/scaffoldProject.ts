@@ -16,7 +16,8 @@
 import * as fs   from 'fs';
 import * as path from 'path';
 import { FrameworkMemoryService } from '../services/frameworkMemory.service.js';
-import type { ToolOutput } from '../types/mcp.types.js';
+import { LiveCrawlerService }     from '../services/liveCrawler.service.js';
+import type { ToolOutput }        from '../types/mcp.types.js';
 import type { FrameworkBlueprint, ScaffoldResult } from '../types/framework.types.js';
 
 interface ScaffoldInput {
@@ -316,7 +317,7 @@ function paramName(typeName: string): string {
 // Main scaffold function
 // ---------------------------------------------------------------------------
 
-async function scaffold(input: ScaffoldInput): Promise<ScaffoldResult> {
+async function scaffold(input: ScaffoldInput): Promise<ScaffoldResult & { usedCrawl: boolean }> {
   const service   = new FrameworkMemoryService();
   const blueprint = service.loadBlueprint(input.blueprint_name);
   const name      = input.new_project_name.trim();
@@ -334,8 +335,22 @@ async function scaffold(input: ScaffoldInput): Promise<ScaffoldResult> {
     filesGenerated.push(p);
   };
 
-  // 1. Page object
-  await write(`${name}Page.cs`, genPageObject(blueprint, name, input.page_url));
+  // 1. Page object — prefer real selectors from a saved crawl
+  const crawlSvc  = new LiveCrawlerService();
+  let usedCrawl   = false;
+  if (crawlSvc.hasCrawl(name)) {
+    try {
+      const crawl   = crawlSvc.loadCrawl(name);
+      const content = crawlSvc.buildPageObjectCs(crawl, blueprint);
+      await write(`${name}Page.cs`, content);
+      usedCrawl = true;
+    } catch {
+      // Crawl load failed — fall through to placeholder template
+    }
+  }
+  if (!usedCrawl) {
+    await write(`${name}Page.cs`, genPageObject(blueprint, name, input.page_url));
+  }
 
   // 2. Step definitions
   await write(`${name}Steps.cs`, genStepDefinition(blueprint, name));
@@ -356,7 +371,7 @@ async function scaffold(input: ScaffoldInput): Promise<ScaffoldResult> {
   // 6. .csproj
   await write(`${name}Tests.csproj`, genCsproj(blueprint, name));
 
-  return { filesGenerated, warnings };
+  return { filesGenerated, warnings, usedCrawl };
 }
 
 // ---------------------------------------------------------------------------
@@ -375,13 +390,16 @@ export async function scaffoldProject(input: ScaffoldInput): Promise<ToolOutput>
       return { content: [{ type: 'text', text: '❌ output_path is required.' }], isError: true };
     }
 
-    const result = await scaffold(input);
-    const name   = input.new_project_name.trim();
+    const { usedCrawl, ...result } = await scaffold(input);
+    const name = input.new_project_name.trim();
 
     const lines: string[] = [
       `✅ Project "${name}" scaffolded from blueprint "${input.blueprint_name}"`,
       ``,
       `📁 Output directory: ${input.output_path}`,
+      usedCrawl
+        ? `🌐 Page object source: real selectors from memory/crawls/${name}-crawl.json`
+        : `📝 Page object source: placeholder template (run crawl_page to get real selectors)`,
       ``,
       `📄 Files generated (${result.filesGenerated.length}):`,
       ...result.filesGenerated.map(f => `   • ${path.basename(f)}`),

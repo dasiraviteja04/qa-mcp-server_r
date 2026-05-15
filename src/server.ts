@@ -8,7 +8,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { listTests, runTests, getFailures, getReleaseRisk, readSchema, readStepInventory, readPageSource, generateTests, autoResearch, coverageAnalysis, generateHtmlReport, scanFramework, scaffoldProject, listBlueprints } from "./tools/simple-tools.js";
+import { listTests, runTests, getFailures, getReleaseRisk, readSchema, readStepInventory, readPageSource, generateTests, autoResearch, coverageAnalysis, generateHtmlReport, scanFramework, scaffoldProject, listBlueprints, crawlPage, getCrawl, listCrawls } from "./tools/simple-tools.js";
 import { qaOrchestrate } from "./tools/qaOrchestrator.js";
 
 const mcpServer = new McpServer({
@@ -227,6 +227,51 @@ mcpServer.registerTool(
   async (input) => generateHtmlReport(input)
 );
 
+// Register crawl_page tool
+mcpServer.registerTool(
+  "crawl_page",
+  {
+    description: "Launch a real Chromium browser, visit a URL, discover all interactive UI elements (buttons, inputs, dropdowns, tables, links, modals), and generate a pre-filled C# Page Object .cs file from a framework blueprint. Saves a structured crawl JSON to memory/crawls/ for use by scaffold_project. Supports optional login via username + env-var password.",
+    inputSchema: z.object({
+      project_name: z.string()
+        .describe("Name for this crawl / the new project, e.g. 'BillingPortal'. Used as the crawl key and C# class prefix."),
+      url: z.string()
+        .describe("Full URL to crawl, e.g. 'https://app.explorecredit.com/billing'."),
+      blueprint_name: z.string().optional()
+        .describe("Name of a saved framework blueprint to use for Page Object generation, e.g. 'CouponHive'. If omitted, crawl JSON is saved but no .cs file is generated."),
+      login: z.object({
+        username:         z.string().describe("Username or email to fill on the login form."),
+        password_env_key: z.string().describe("Name of the environment variable that holds the password, e.g. 'TEST_PASSWORD'. The variable must be set in the server's process environment.")
+      }).optional()
+        .describe("Optional login credentials. When supplied and a password input is found, the tool fills and submits the login form before crawling.")
+    })
+  },
+  async (input) => crawlPage(input)
+);
+
+// Register get_crawl tool
+mcpServer.registerTool(
+  "get_crawl",
+  {
+    description: "Read the saved crawl JSON for a project from memory/crawls/{project_name}-crawl.json. Returns the full structured crawl including all discovered elements and their selectors. Used by scaffold_project internally to auto-fill locators.",
+    inputSchema: z.object({
+      project_name: z.string()
+        .describe("Project name whose crawl to retrieve, e.g. 'BillingPortal'.")
+    })
+  },
+  async (input) => getCrawl(input)
+);
+
+// Register list_crawls tool
+mcpServer.registerTool(
+  "list_crawls",
+  {
+    description: "List all saved page crawls in memory/crawls/. Returns project name, crawl date, URL, and total element count for each. Use this to check if a crawl exists before calling scaffold_project or to decide whether to re-crawl.",
+    inputSchema: z.object({})
+  },
+  async (input) => listCrawls(input)
+);
+
 // Register qa_orchestrate tool
 mcpServer.registerTool(
   "qa_orchestrate",
@@ -274,6 +319,10 @@ async function main() {
   console.error("  • scan_framework:       Scan project → extract patterns → save blueprint");
   console.error("  • scaffold_project:     Load blueprint → generate new project skeleton");
   console.error("  • list_blueprints:      List all saved framework blueprints");
+  console.error("  Live Page Crawler:");
+  console.error("  • crawl_page:           Real browser → discover elements → generate Page.cs");
+  console.error("  • get_crawl:            Read saved crawl JSON for a project");
+  console.error("  • list_crawls:          List all saved page crawls");
   console.error("  Orchestration:");
   console.error("  • qa_orchestrate:      Intelligent agent loop — dynamically chains all tools above");
   console.error("\nServer is ready for MCP connections on stdio...");
