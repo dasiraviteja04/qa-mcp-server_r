@@ -8,7 +8,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { listTests, runTests, getFailures, getReleaseRisk, readSchema, readStepInventory, readPageSource, generateTests, autoResearch, coverageAnalysis, generateHtmlReport } from "./tools/simple-tools.js";
+import { listTests, runTests, getFailures, getReleaseRisk, readSchema, readStepInventory, readPageSource, generateTests, autoResearch, coverageAnalysis, generateHtmlReport, scanFramework, scaffoldProject, listBlueprints } from "./tools/simple-tools.js";
 import { qaOrchestrate } from "./tools/qaOrchestrator.js";
 
 const mcpServer = new McpServer({
@@ -160,6 +160,52 @@ mcpServer.registerTool(
   async (input) => coverageAnalysis(input)
 );
 
+// Register scan_framework tool
+mcpServer.registerTool(
+  "scan_framework",
+  {
+    description: "Scan an existing C#/Reqnroll/Playwright test project and extract its coding patterns into a reusable blueprint. Reads *Page.cs, *Steps.cs, *DBHelper.cs, *TestContext.cs, *.runsettings and *.csproj files. Saves the blueprint to memory/frameworks/{project_name}-blueprint.json for later use with scaffold_project.",
+    inputSchema: z.object({
+      project_name: z.string()
+        .describe("Identifier for the blueprint, e.g. 'CouponHive'. Used as the blueprint filename."),
+      project_path: z.string()
+        .describe("Absolute path to the root of the C# test project to scan, e.g. 'C:/repos/Explore/UIAutomationTests'.")
+    })
+  },
+  async (input) => scanFramework(input)
+);
+
+// Register scaffold_project tool
+mcpServer.registerTool(
+  "scaffold_project",
+  {
+    description: "Generate a new C#/Reqnroll/Playwright test project skeleton from a saved framework blueprint. Produces Page.cs, Steps.cs, DBHelper.cs (optional), .feature, .runsettings and .csproj files — all matching the original project's base classes, constructor injection, naming conventions and async patterns.",
+    inputSchema: z.object({
+      blueprint_name: z.string()
+        .describe("Name of the saved blueprint to use, e.g. 'CouponHive'. Must have been created by scan_framework first."),
+      new_project_name: z.string()
+        .describe("Name for the new project, e.g. 'BillingPortal'. Used as the class name prefix and file prefix."),
+      output_path: z.string()
+        .describe("Absolute directory path where generated files will be written, e.g. 'C:/repos/BillingPortal/Tests'."),
+      page_url: z.string().optional()
+        .describe("Optional URL of the page to document in the generated Page object as a comment reference."),
+      db_tables: z.array(z.string()).optional()
+        .describe("Optional list of database table names to generate DB helper methods for, e.g. ['BillingAccounts', 'Invoices'].")
+    })
+  },
+  async (input) => scaffoldProject(input)
+);
+
+// Register list_blueprints tool
+mcpServer.registerTool(
+  "list_blueprints",
+  {
+    description: "List all saved framework blueprints in memory/frameworks/. Shows name, scan date, and source project path for each. Use this to see which blueprints are available before calling scaffold_project.",
+    inputSchema: z.object({})
+  },
+  async (input) => listBlueprints(input)
+);
+
 // Register generate_html_report tool
 mcpServer.registerTool(
   "generate_html_report",
@@ -224,6 +270,10 @@ async function main() {
   console.error("  • coverage_analysis:   Find test coverage gaps for recently changed files");
   console.error("  Reporting:");
   console.error("  • generate_html_report: Self-contained HTML report for BA/manager sharing");
+  console.error("  Framework Memory:");
+  console.error("  • scan_framework:       Scan project → extract patterns → save blueprint");
+  console.error("  • scaffold_project:     Load blueprint → generate new project skeleton");
+  console.error("  • list_blueprints:      List all saved framework blueprints");
   console.error("  Orchestration:");
   console.error("  • qa_orchestrate:      Intelligent agent loop — dynamically chains all tools above");
   console.error("\nServer is ready for MCP connections on stdio...");

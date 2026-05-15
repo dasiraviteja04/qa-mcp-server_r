@@ -13,6 +13,9 @@ import { generateTests as generateTestsImpl } from './generateTests.js';
 import { autoResearch as autoResearchImpl } from './autoResearch.js';
 import { coverageAnalysis as coverageAnalysisImpl } from './coverageAnalysis.js';
 import { generateHtmlReport as generateHtmlReportImpl } from './generateHtmlReport.js';
+import { scanFramework as scanFrameworkImpl }           from './scanFramework.js';
+import { scaffoldProject as scaffoldProjectImpl }       from './scaffoldProject.js';
+import { listBlueprints as listBlueprintsImpl }         from './listBlueprints.js';
 
 export async function listTests(input: any): Promise<any> {
   try {
@@ -144,6 +147,36 @@ export async function generateHtmlReport(input: any): Promise<any> {
   } catch (error: any) {
     return {
       content: [{ type: 'text', text: `Error generating HTML report: ${error.message}` }]
+    };
+  }
+}
+
+export async function scanFramework(input: any): Promise<any> {
+  try {
+    return await scanFrameworkImpl(input);
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error in scan_framework: ${error.message}` }]
+    };
+  }
+}
+
+export async function scaffoldProject(input: any): Promise<any> {
+  try {
+    return await scaffoldProjectImpl(input);
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error in scaffold_project: ${error.message}` }]
+    };
+  }
+}
+
+export async function listBlueprints(input: any): Promise<any> {
+  try {
+    return await listBlueprintsImpl(input);
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error in list_blueprints: ${error.message}` }]
     };
   }
 }
