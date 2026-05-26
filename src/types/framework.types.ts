@@ -4,6 +4,37 @@
  */
 
 // ---------------------------------------------------------------------------
+// Language discriminator
+// ---------------------------------------------------------------------------
+
+export type ProjectLanguage = 'csharp' | 'typescript';
+
+// ---------------------------------------------------------------------------
+// TypeScript-specific patterns (populated when language === 'typescript')
+// ---------------------------------------------------------------------------
+
+export interface TypeScriptPatterns {
+  /** How locators are declared, e.g. "private arrow function properties" */
+  locatorStyle:       string;
+  /** Async pattern, e.g. "async/await" */
+  asyncPattern:       string;
+  /** Export style, e.g. "named export class" */
+  exportStyle:        string;
+  /** Step library, e.g. "Given/When/Then from @cucumber/cucumber" */
+  stepStyle:          string;
+  /** Fixture injection style, e.g. "{ page } destructuring" */
+  fixtureStyle:       string;
+  /** Config file name, e.g. "playwright.config.ts" */
+  configFile:         string;
+  /** Package manager used, e.g. "npm" */
+  packageManager:     string;
+  /** Playwright version detected from package.json */
+  playwrightVersion:  string;
+  /** Test framework, e.g. "playwright/test" or "cucumber" */
+  testFramework:      string;
+}
+
+// ---------------------------------------------------------------------------
 // Blueprint shape — saved to memory/frameworks/{name}-blueprint.json
 // ---------------------------------------------------------------------------
 
@@ -76,11 +107,15 @@ export interface FrameworkBlueprint {
   projectName:   string;
   scannedAt:     string;      // ISO timestamp
   projectPath:   string;      // Original path scanned
+  /** Target language — defaults to 'csharp' when absent for backward compatibility */
+  language?:     ProjectLanguage;
   pageObject:    PageObjectPattern;
   stepDefinition: StepDefinitionPattern;
   dbHelper:      DbHelperPattern;
   testContext:   TestContextPattern;
   projectSetup:  ProjectSetupPattern;
+  /** TypeScript-specific patterns — populated only when language === 'typescript' */
+  typescript?:   TypeScriptPatterns;
   /** Raw file counts found during scan */
   scanSummary: {
     pageFiles:      number;
@@ -89,6 +124,10 @@ export interface FrameworkBlueprint {
     contextFiles:   number;
     runsettings:    number;
     csprojFiles:    number;
+    tsPageFiles?:   number;
+    tsStepFiles?:   number;
+    tsDbFiles?:     number;
+    tsConfigFiles?: number;
   };
 }
 

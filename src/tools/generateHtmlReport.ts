@@ -20,6 +20,10 @@ export interface GenerateHtmlReportInput {
   openInBrowser?: boolean;
   /** Override the output path. Default: <reportsDir>/report-<timestamp>.html */
   outputPath?: string;
+  /** Project name — used to auto-load requirements coverage from memory/ */
+  project_name?: string;
+  /** Include requirements traceability sections in the report (default: true) */
+  include_requirements?: boolean;
 }
 
 export async function generateHtmlReport(
@@ -31,11 +35,15 @@ export async function generateHtmlReport(
 
     const opts: Parameters<typeof service.generateAndSave>[0] = {
       title:         input.title         ?? 'CouponHive QA Report',
-      openInBrowser: input.openInBrowser ?? false
+      openInBrowser: input.openInBrowser ?? false,
     };
-    if (input.coverageText) opts.coverageText = input.coverageText;
-    if (input.riskText)     opts.riskText     = input.riskText;
-    if (input.outputPath)   opts.outputPath   = input.outputPath;
+    if (input.coverageText)        opts.coverageText        = input.coverageText;
+    if (input.riskText)            opts.riskText            = input.riskText;
+    if (input.outputPath)          opts.outputPath          = input.outputPath;
+    if (input.project_name)        opts.projectName         = input.project_name;
+    if (input.include_requirements !== undefined) {
+      opts.includeRequirements = input.include_requirements;
+    }
 
     const savedPath = service.generateAndSave(opts);
 
@@ -54,6 +62,12 @@ export async function generateHtmlReport(
           `  • Release verdict (GO / CAUTION / NO-GO)`,
           `  • Summary cards (total, passed, failed, pass rate, duration)`,
           `  • Pass rate trend sparkline (last 6 runs)`,
+          ...(input.project_name && input.include_requirements !== false ? [
+            `  • Requirements traceability summary + coverage bar`,
+            `  • Full traceability matrix (REQ ID → scenario → pass/fail)`,
+            `  • Failing requirements detail cards`,
+            `  • Not covered requirements list`,
+          ] : []),
           `  • Failure table grouped by feature area (business-friendly names)`,
           `  • Failure screenshots (thumbnail gallery)`,
           `  • Coverage gap analysis`,

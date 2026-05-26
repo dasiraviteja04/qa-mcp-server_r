@@ -1,17 +1,24 @@
 /**
  * FrameworkMemoryService
  *
- * Scans an existing C#/Reqnroll/Playwright test project, extracts coding
- * patterns from real source files, saves a blueprint JSON, and can later
- * load that blueprint for scaffolding new projects.
+ * Scans an existing C#/Reqnroll/Playwright or TypeScript/Playwright test
+ * project, extracts coding patterns from real source files, saves a blueprint
+ * JSON, and can later load that blueprint for scaffolding new projects.
  *
- * Supported file patterns:
+ * Supported file patterns (C#):
  *   *Page.cs        → page object pattern
  *   *Steps.cs       → step definition pattern
  *   *DBHelper.cs    → DB helper pattern
  *   *TestContext.cs → test context pattern
  *   *.runsettings   → project config pattern
  *   *.csproj        → project structure
+ *
+ * Supported file patterns (TypeScript):
+ *   *.page.ts       → page object pattern
+ *   *.steps.ts      → step definition pattern
+ *   *.db.ts         → DB helper pattern
+ *   playwright.config.ts → config pattern
+ *   package.json    → package manager + dependencies
  */
 
 import * as fs   from 'fs';
@@ -25,6 +32,8 @@ import type {
   DbHelperPattern,
   TestContextPattern,
   ProjectSetupPattern,
+  TypeScriptPatterns,
+  ProjectLanguage,
 } from '../types/framework.types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -232,6 +241,187 @@ function extractProjectSetupPattern(csprojFiles: string[], runsettingsFiles: str
 }
 
 // ---------------------------------------------------------------------------
+// TypeScript-specific extractors
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect whether a project is TypeScript-first by comparing TS vs C# file counts.
+ * Returns 'typescript' if TS files dominate, otherwise 'csharp'.
+ */
+function detectLanguage(
+  csPageFiles: string[], csStepFiles: string[],
+  tsPageFiles: string[], tsStepFiles: string[],
+): ProjectLanguage {
+  const csCount = csPageFiles.length + csStepFiles.length;
+  const tsCount = tsPageFiles.length + tsStepFiles.length;
+  return tsCount > csCount ? 'typescript' : 'csharp';
+}
+
+/** Extract TypeScript page object patterns from *.page.ts files */
+function extractTsPageObjectPattern(files: string[]): PageObjectPattern {
+  const allContent = files.map(readFile).join('\n');
+  const first      = files[0] ?? '';
+  const content    = first ? readFile(first) : '';
+
+  // Detect locator style: arrow fn props vs get accessors
+  const hasArrow   = /private\s+\w+\s*=\s*(?:async\s*)?\(/.test(allContent) ||
+                     /private\s+readonly\s+\w+\s*=\s*/.test(allContent);
+  const hasLocator = allContent.includes('this.page.locator') || allContent.includes('page.locator');
+  const locatorStyle = hasArrow
+    ? 'private arrow function properties'
+    : hasLocator
+      ? 'this.page.locator() properties'
+      : 'ILocator properties';
+
+  // Async pattern
+  const asyncPattern = allContent.includes('async ')
+    ? 'async/await'
+    : 'synchronous';
+
+  // Namespace → TypeScript uses export class, not namespace
+  const namespace = extract(content, /export\s+class\s+(\w+)Page/) ?? '';
+
+  // Base class
+  const baseClass = extract(content, /class\s+\w+Page\s+extends\s+(\w+)/) ?? null;
+
+  // Constructor params — TS style: constructor(private readonly page: Page)
+  const ctorMatch = content.match(/constructor\s*\(([^)]+)\)/);
+  const constructorParams = ctorMatch
+    ? ctorMatch[1]!.split(',')
+        .map(p => p.trim().split(/\s*:\s*/)[1]?.trim() ?? p.trim())
+        .filter(Boolean)
+    : [];
+
+  const exampleMethods = extractAll(allContent, /async\s+(\w+)\s*\(/)
+    .filter((v, i, a) => a.indexOf(v) === i && v !== 'constructor')
+    .slice(0, 5);
+
+  return { baseClass, constructorParams, locatorStyle, asyncPattern, exampleMethods, namespace };
+}
+
+/** Extract TypeScript step definition patterns from *.steps.ts files */
+function extractTsStepDefinitionPattern(files: string[]): StepDefinitionPattern {
+  const allContent = files.map(readFile).join('\n');
+  const first      = files[0] ?? '';
+  const content    = first ? readFile(first) : '';
+
+  // Cucumber vs Playwright-test style
+  const hasCucumber = allContent.includes('@cucumber/cucumber') ||
+                      allContent.includes('cucumber-js');
+  const bindingStyle = hasCucumber
+    ? 'Given/When/Then from @cucumber/cucumber'
+    : 'test() / step() from @playwright/test';
+
+  // Base class
+  const baseClass = extract(content, /class\s+\w+Steps\s+extends\s+(\w+)/) ?? null;
+
+  // Injection (constructor params)
+  const ctorMatch = content.match(/constructor\s*\(([^)]+)\)/);
+  const injection = ctorMatch
+    ? ctorMatch[1]!.split(',')
+        .map(p => p.trim().split(/\s*:\s*/)[1]?.trim() ?? p.trim())
+        .filter(Boolean)
+    : [];
+
+  const namingConvention = hasCucumber ? 'Given/When/Then lambda style' : 'test.step style';
+
+  // Extract step texts
+  const exampleSteps = extractAll(allContent, /(?:Given|When|Then)\s*\(\s*['"`]([^'"`]+)['"`]/)
+    .slice(0, 5);
+
+  const namespace = '';  // TS uses module exports, not namespaces
+
+  return { baseClass, injection, bindingStyle, namingConvention, exampleSteps, namespace };
+}
+
+/** Extract TypeScript DB helper patterns from *.db.ts files */
+function extractTsDbHelperPattern(files: string[]): DbHelperPattern {
+  const allContent = files.map(readFile).join('\n');
+  const first      = files[0] ?? '';
+
+  const orm = allContent.includes('prisma')
+    ? 'Prisma'
+    : allContent.includes('typeorm') || allContent.includes('TypeORM')
+      ? 'TypeORM'
+      : allContent.includes('knex') || allContent.includes('Knex')
+        ? 'Knex'
+        : allContent.includes('mssql') || allContent.includes('sql.connect')
+          ? 'mssql'
+          : allContent.includes('pg') || allContent.includes('Pool')
+            ? 'pg'
+            : 'raw SQL';
+
+  const connectionSource = extract(allContent, /process\.env\.(\w+)/) ?? 'process.env.DB_CONNECTION_STRING';
+  const connectionMethod = 'process.env';
+
+  const exampleMethods = extractAll(allContent, /async\s+(\w+)\s*\(/)
+    .filter((v, i, a) => a.indexOf(v) === i && v !== 'constructor')
+    .slice(0, 5);
+
+  const namespace = '';
+
+  return { orm, connectionSource, connectionMethod, exampleMethods, namespace };
+}
+
+/** Extract TypeScript-specific patterns from playwright.config.ts + package.json */
+function extractTypeScriptPatterns(
+  configFiles: string[],
+  packageJsonFiles: string[],
+  tsPageFiles: string[],
+  tsStepFiles: string[],
+): TypeScriptPatterns {
+  const configContent  = configFiles.map(readFile).join('\n');
+  const pkgContent     = packageJsonFiles.map(readFile).join('\n');
+  const allStepContent = tsStepFiles.map(readFile).join('\n');
+  const allPageContent = tsPageFiles.map(readFile).join('\n');
+
+  // Playwright version from package.json
+  let playwrightVersion = '*';
+  try {
+    if (pkgContent) {
+      const pkg = JSON.parse(pkgContent) as Record<string, unknown>;
+      const deps = { ...(pkg['dependencies'] as Record<string,string> ?? {}),
+                     ...(pkg['devDependencies'] as Record<string,string> ?? {}) };
+      playwrightVersion = deps['@playwright/test'] ?? deps['playwright'] ?? '*';
+    }
+  } catch { /* ignore */ }
+
+  // Detect step framework
+  const hasCucumber = allStepContent.includes('@cucumber/cucumber') || pkgContent.includes('@cucumber/cucumber');
+  const testFramework = hasCucumber ? 'cucumber' : 'playwright/test';
+
+  // Locator style
+  const hasArrow = /private\s+\w+\s*=\s*/.test(allPageContent);
+  const locatorStyle = hasArrow ? 'private arrow function properties' : 'page.locator() calls';
+
+  // Fixture style
+  const fixtureStyle = configContent.includes('use:')
+    ? '{ page } destructuring'
+    : 'page parameter injection';
+
+  // Package manager
+  const hasYarnLock  = configFiles.some(f => f.includes('yarn.lock'));
+  const hasPnpmLock  = configFiles.some(f => f.includes('pnpm-lock'));
+  const packageManager = hasPnpmLock ? 'pnpm' : hasYarnLock ? 'yarn' : 'npm';
+
+  const configFile = configFiles.find(f => path.basename(f) === 'playwright.config.ts')
+    ? 'playwright.config.ts'
+    : 'playwright.config.js';
+
+  return {
+    locatorStyle,
+    asyncPattern:      'async/await',
+    exportStyle:       'named export class',
+    stepStyle:         hasCucumber ? 'Given/When/Then from @cucumber/cucumber' : 'test.step from @playwright/test',
+    fixtureStyle,
+    configFile,
+    packageManager,
+    playwrightVersion,
+    testFramework,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // FrameworkMemoryService
 // ---------------------------------------------------------------------------
 
@@ -251,18 +441,68 @@ export class FrameworkMemoryService {
       throw new Error(`Project path does not exist: ${projectPath}`);
     }
 
-    // Collect files by type
-    const pageFiles     = await walk(projectPath, f => /Page\.cs$/i.test(f));
-    const stepFiles     = await walk(projectPath, f => /Steps?\.cs$/i.test(f));
-    const dbFiles       = await walk(projectPath, f => /DBHelper\.cs$/i.test(f));
-    const contextFiles  = await walk(projectPath, f => /TestContext\.cs$/i.test(f));
-    const runsettings   = await walk(projectPath, f => /\.runsettings$/i.test(f));
-    const csprojFiles   = await walk(projectPath, f => /\.csproj$/i.test(f));
+    // ── Collect C# files ──────────────────────────────────────────────────
+    const pageFiles    = await walk(projectPath, f => /Page\.cs$/i.test(f));
+    const stepFiles    = await walk(projectPath, f => /Steps?\.cs$/i.test(f));
+    const dbFiles      = await walk(projectPath, f => /DBHelper\.cs$/i.test(f));
+    const contextFiles = await walk(projectPath, f => /TestContext\.cs$/i.test(f));
+    const runsettings  = await walk(projectPath, f => /\.runsettings$/i.test(f));
+    const csprojFiles  = await walk(projectPath, f => /\.csproj$/i.test(f));
 
+    // ── Collect TypeScript files ───────────────────────────────────────────
+    const tsPageFiles   = await walk(projectPath, f => /\.page\.ts$/i.test(f));
+    const tsStepFiles   = await walk(projectPath, f => /\.steps\.ts$/i.test(f));
+    const tsDbFiles     = await walk(projectPath, f => /\.db\.ts$/i.test(f));
+    const tsConfigFiles = await walk(projectPath, f => /playwright\.config\.ts$/i.test(f));
+    const pkgJsonFiles  = await walk(projectPath, f => path.basename(f) === 'package.json');
+
+    // ── Auto-detect language ───────────────────────────────────────────────
+    const language = detectLanguage(pageFiles, stepFiles, tsPageFiles, tsStepFiles);
+
+    if (language === 'typescript') {
+      // Use TS file counts for scanSummary, fill C# fields with sensible stubs
+      const tsPatterns = extractTypeScriptPatterns(tsConfigFiles, pkgJsonFiles, tsPageFiles, tsStepFiles);
+
+      const blueprint: FrameworkBlueprint = {
+        projectName,
+        scannedAt:   new Date().toISOString(),
+        projectPath,
+        language,
+        pageObject:    extractTsPageObjectPattern(tsPageFiles),
+        stepDefinition: extractTsStepDefinitionPattern(tsStepFiles),
+        dbHelper:      extractTsDbHelperPattern(tsDbFiles),
+        testContext:   { fields: [], constructorParams: [], namespace: '' },
+        projectSetup:  {
+          targetFramework:    'node',
+          testFramework:      tsPatterns.testFramework,
+          packages:           [],
+          runsettingsPattern: 'playwright.config.ts',
+          rootNamespace:      '',
+        },
+        typescript:  tsPatterns,
+        scanSummary: {
+          pageFiles:      pageFiles.length,
+          stepFiles:      stepFiles.length,
+          dbHelperFiles:  dbFiles.length,
+          contextFiles:   contextFiles.length,
+          runsettings:    runsettings.length,
+          csprojFiles:    csprojFiles.length,
+          tsPageFiles:    tsPageFiles.length,
+          tsStepFiles:    tsStepFiles.length,
+          tsDbFiles:      tsDbFiles.length,
+          tsConfigFiles:  tsConfigFiles.length,
+        },
+      };
+
+      return blueprint;
+    }
+
+    // ── C# path (default) ─────────────────────────────────────────────────
     const blueprint: FrameworkBlueprint = {
       projectName,
       scannedAt:   new Date().toISOString(),
       projectPath,
+      language:    'csharp',
       pageObject:    extractPageObjectPattern(pageFiles),
       stepDefinition: extractStepDefinitionPattern(stepFiles),
       dbHelper:      extractDbHelperPattern(dbFiles),
@@ -275,7 +515,9 @@ export class FrameworkMemoryService {
         contextFiles:  contextFiles.length,
         runsettings:   runsettings.length,
         csprojFiles:   csprojFiles.length,
-      }
+        tsPageFiles:   tsPageFiles.length,
+        tsStepFiles:   tsStepFiles.length,
+      },
     };
 
     return blueprint;

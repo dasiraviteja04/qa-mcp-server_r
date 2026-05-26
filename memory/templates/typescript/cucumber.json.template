@@ -1,0 +1,16 @@
+{
+  "default": {
+    "requireModule": ["ts-node/register"],
+    "require": [
+      "tests/support/world.ts",
+      "tests/support/hooks.ts",
+      "tests/steps/**/*.steps.ts"
+    ],
+    "paths": ["tests/features/**/*.feature"],
+    "format": [
+      "progress-bar",
+      "html:cucumber-report.html"
+    ],
+    "formatOptions": { "snippetInterface": "async-await" }
+  }
+}

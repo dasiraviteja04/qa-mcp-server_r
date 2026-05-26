@@ -1,0 +1,330 @@
+{
+  "projectName": "TSStarter",
+  "language": "typescript",
+  "createdAt": "2026-05-20T00:00:00.000Z",
+  "description": "Clean Playwright TypeScript starter — BDD with Cucumber",
+
+  "projectSetup": {
+    "packageManager": "npm",
+    "targetRuntime": "node",
+    "playwrightVersion": "^1.44.0",
+    "testFramework": "cucumber",
+    "typescriptVersion": "^5.0.0",
+    "nodeVersion": ">=18.0.0",
+    "scripts": {
+      "test": "cucumber-js",
+      "test:headed": "HEADED=true cucumber-js",
+      "test:debug": "PWDEBUG=1 cucumber-js",
+      "test:report": "npx playwright show-report"
+    },
+    "dependencies": [
+      "@playwright/test",
+      "@cucumber/cucumber",
+      "mssql",
+      "dotenv",
+      "faker"
+    ],
+    "devDependencies": [
+      "typescript",
+      "@types/node",
+      "@types/mssql",
+      "ts-node"
+    ]
+  },
+
+  "folderStructure": {
+    "root": "{ProjectName}-tests/",
+    "tests": "tests/",
+    "pages": "tests/pages/",
+    "steps": "tests/steps/",
+    "helpers": "tests/helpers/",
+    "features": "tests/features/",
+    "support": "tests/support/",
+    "config": "playwright.config.ts",
+    "env": ".env.template",
+    "gitignore": ".gitignore",
+    "tsconfig": "tsconfig.json"
+  },
+
+  "pageObject": {
+    "language": "typescript",
+    "fileNaming": "{name}.page.ts",
+    "className": "{ProjectName}Page",
+    "exportStyle": "named export class",
+    "constructor": {
+      "params": ["page: Page"],
+      "modifier": "private readonly"
+    },
+    "locatorStyle": {
+      "type": "private arrow functions",
+      "pattern": "private {name} = () => this.page.locator('{selector}')",
+      "grouping": [
+        "// ── Inputs",
+        "// ── Buttons",
+        "// ── Tables",
+        "// ── Modals"
+      ]
+    },
+    "actionMethods": {
+      "asyncPattern": "async/await",
+      "returnType": "Promise<void>",
+      "waitStrategy": "waitForLoadState networkidle",
+      "namingConvention": "camelCase",
+      "examples": [
+        "async loginAsync(username: string, password: string)",
+        "async clickDownloadInvoiceAsync()",
+        "async getTableRowsAsync()"
+      ]
+    },
+    "imports": [
+      "import { Page } from '@playwright/test';"
+    ]
+  },
+
+  "stepDefinition": {
+    "language": "typescript",
+    "fileNaming": "{name}.steps.ts",
+    "framework": "cucumber",
+    "imports": [
+      "import { Given, When, Then } from '@cucumber/cucumber';",
+      "import { expect } from '@playwright/test';",
+      "import { {ProjectName}Page } from '../pages/{name}.page';",
+      "import { {ProjectName}DB } from '../helpers/{name}.db';"
+    ],
+    "worldContext": {
+      "used": true,
+      "pageAccess": "this.page",
+      "contextFile": "tests/support/world.ts"
+    },
+    "bindingStyle": "Given/When/Then functions",
+    "namingConvention": "camelCase",
+    "stepPattern": {
+      "given": "Given('{step text}', async function() {})",
+      "when": "When('{step text}', async function() {})",
+      "then": "Then('{step text}', async function() {})"
+    }
+  },
+
+  "dbHelper": {
+    "language": "typescript",
+    "fileNaming": "{name}.db.ts",
+    "className": "{ProjectName}DB",
+    "exportStyle": "named export class",
+    "orm": "mssql raw queries",
+    "connectionSource": "process.env.DB_CONNECTION_STRING",
+    "constructor": {
+      "pattern": "reads from process.env",
+      "configShape": "sql.config object"
+    },
+    "modelStyle": {
+      "type": "TypeScript interfaces",
+      "naming": "singular PascalCase",
+      "nullableColumns": "type | null"
+    },
+    "methodPattern": {
+      "asyncPattern": "async/await",
+      "returnTypes": [
+        "Promise<{Model}[]>",
+        "Promise<{Model} | null>",
+        "Promise<number>"
+      ],
+      "namingConvention": [
+        "getAll{Table}sAsync()",
+        "get{Table}By{Column}Async()",
+        "get{Table}CountAsync()"
+      ]
+    },
+    "imports": [
+      "import sql from 'mssql';"
+    ]
+  },
+
+  "testFile": {
+    "language": "typescript",
+    "fileNaming": "{name}.feature",
+    "framework": "cucumber/gherkin",
+    "style": {
+      "featureHeader": "Feature: {ProjectName} — {area}",
+      "background": "Background: Given I am on the {name} page",
+      "scenarioStyle": "Scenario per user journey",
+      "tagStyle": "@{projectName} @{scenarioType}"
+    }
+  },
+
+  "supportFiles": {
+    "world.ts": {
+      "purpose": "Cucumber World context — holds Page instance",
+      "pattern": "setWorldConstructor with Playwright browser",
+      "provides": ["this.page", "this.browser", "this.context"]
+    },
+    "hooks.ts": {
+      "purpose": "Before/After hooks for browser lifecycle",
+      "pattern": "Before → launch browser, After → close browser",
+      "screenshotOnFailure": true
+    }
+  },
+
+  "playwrightConfig": {
+    "fileNaming": "playwright.config.ts",
+    "defaults": {
+      "testDir": "./tests",
+      "fullyParallel": false,
+      "retries": 1,
+      "workers": 1,
+      "reporter": "html",
+      "browser": "chromium",
+      "headless": true,
+      "baseURL": "process.env.APP_URL",
+      "trace": "on-first-retry",
+      "screenshot": "only-on-failure",
+      "video": "on-first-retry",
+      "timeout": 30000
+    }
+  },
+
+  "envTemplate": {
+    "fileNaming": ".env.template",
+    "variables": [
+      "APP_URL",
+      "APP_URL_STAGING",
+      "APP_URL_PROD",
+      "TEST_USERNAME",
+      "TEST_PASSWORD",
+      "DB_CONNECTION_STRING"
+    ]
+  },
+
+  "tsconfig": {
+    "compilerOptions": {
+      "target": "ES2020",
+      "module": "commonjs",
+      "lib": ["ES2020"],
+      "strict": true,
+      "esModuleInterop": true,
+      "resolveJsonModule": true,
+      "outDir": "./dist",
+      "rootDir": "./"
+    },
+    "include": ["tests/**/*", "*.ts"],
+    "exclude": ["node_modules", "dist"]
+  },
+
+  "gitignore": {
+    "entries": [
+      "node_modules/",
+      "dist/",
+      ".env",
+      "test-results/",
+      "playwright-report/",
+      "*.log"
+    ]
+  },
+
+  "selectorStrategy": {
+    "priority": [
+      "data-testid",
+      "aria-label",
+      "name attribute",
+      "placeholder",
+      "visible text",
+      "css class (unstable — flag with warning)"
+    ],
+    "unstableWarning": "// ⚠️ Unstable — recommend adding data-testid"
+  },
+
+  "codingConventions": {
+    "fileNaming": "kebab-case",
+    "classNaming": "PascalCase",
+    "methodNaming": "camelCase",
+    "variableNaming": "camelCase",
+    "interfaceNaming": "PascalCase no I prefix",
+    "asyncPattern": "always async/await never .then()",
+    "imports": "named imports preferred",
+    "nullHandling": "optional chaining ?. and ?? operator"
+  },
+
+  "scannedAt": "2026-05-20T00:00:00.000Z",
+  "projectPath": "generated",
+  "pageObject_compat": {
+    "baseClass": null,
+    "constructorParams": ["Page"],
+    "locatorStyle": "private arrow function properties",
+    "asyncPattern": "async/await",
+    "exampleMethods": [
+      "loginAsync",
+      "clickDownloadInvoiceAsync",
+      "getTableRowsAsync",
+      "navigateAsync",
+      "expectVisible"
+    ],
+    "namespace": ""
+  },
+  "stepDefinition_compat": {
+    "baseClass": null,
+    "injection": [],
+    "bindingStyle": "Given/When/Then from @cucumber/cucumber",
+    "namingConvention": "camelCase lambda style",
+    "exampleSteps": [
+      "I navigate to the {name} page",
+      "I perform an action on {name}",
+      "the {name} page should show the expected result"
+    ],
+    "namespace": ""
+  },
+  "dbHelper_compat": {
+    "orm": "mssql raw queries",
+    "connectionSource": "process.env.DB_CONNECTION_STRING",
+    "connectionMethod": "process.env",
+    "exampleMethods": [
+      "getAllAsync",
+      "getByIdAsync",
+      "getCountAsync"
+    ],
+    "namespace": ""
+  },
+  "testContext": {
+    "fields": [],
+    "constructorParams": [],
+    "namespace": ""
+  },
+  "projectSetup_compat": {
+    "targetFramework": "node",
+    "testFramework": "cucumber",
+    "packages": [
+      "@playwright/test",
+      "@cucumber/cucumber",
+      "mssql",
+      "dotenv",
+      "faker",
+      "typescript",
+      "@types/node",
+      "@types/mssql",
+      "ts-node"
+    ],
+    "runsettingsPattern": "playwright.config.ts",
+    "rootNamespace": ""
+  },
+  "typescript": {
+    "locatorStyle": "private arrow function properties",
+    "asyncPattern": "async/await",
+    "exportStyle": "named export class",
+    "stepStyle": "Given/When/Then from @cucumber/cucumber",
+    "fixtureStyle": "{ page } from CustomWorld",
+    "configFile": "playwright.config.ts",
+    "packageManager": "npm",
+    "playwrightVersion": "^1.44.0",
+    "testFramework": "cucumber"
+  },
+  "scanSummary": {
+    "pageFiles": 0,
+    "stepFiles": 0,
+    "dbHelperFiles": 0,
+    "contextFiles": 0,
+    "runsettings": 0,
+    "csprojFiles": 0,
+    "tsPageFiles": 0,
+    "tsStepFiles": 0,
+    "tsDbFiles": 0,
+    "tsConfigFiles": 0
+  }
+}

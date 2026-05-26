@@ -8,7 +8,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { listTests, runTests, getFailures, getReleaseRisk, readSchema, readStepInventory, readPageSource, generateTests, autoResearch, coverageAnalysis, generateHtmlReport, scanFramework, scaffoldProject, listBlueprints, crawlPage, getCrawl, listCrawls, readDbSchema, getSchema, listSchemas } from "./tools/simple-tools.js";
+import { listTests, runTests, getFailures, getReleaseRisk, readSchema, readStepInventory, readPageSource, generateTests, autoResearch, coverageAnalysis, generateHtmlReport, scanFramework, scaffoldProject, listBlueprints, crawlPage, getCrawl, listCrawls, readDbSchema, getSchema, listSchemas, readRequirements, generateTestsFromRequirements, requirementsCoverage, getRequirements, listRequirements } from "./tools/simple-tools.js";
 import { qaOrchestrate } from "./tools/qaOrchestrator.js";
 
 const mcpServer = new McpServer({
@@ -67,8 +67,11 @@ mcpServer.registerTool(
 mcpServer.registerTool(
   "get_release_risk",
   {
-    description: "Assess release risk based on test results and QA policies",
-    inputSchema: z.object({})
+    description: "Assess release risk based on test results and QA policies. When project_name is supplied, also checks requirements coverage — failing or uncovered requirements escalate the risk verdict.",
+    inputSchema: z.object({
+      project_name: z.string().optional()
+        .describe("Optional project name — when supplied, also reads memory/requirements/{project_name}-coverage.json and adds requirements verdict to the output.")
+    })
   },
   async (input) => getReleaseRisk(input)
 );
@@ -210,7 +213,7 @@ mcpServer.registerTool(
 mcpServer.registerTool(
   "generate_html_report",
   {
-    description: "Generate a self-contained HTML QA report from the latest test run. Designed for sharing with BAs and managers — business-friendly test names, colour-coded release verdict, pass-rate trend chart, failure table grouped by feature area, screenshot gallery, and coverage gaps. Opens in any browser, printable to PDF.",
+    description: "Generate a self-contained HTML QA report from the latest test run. Designed for sharing with BAs and managers — business-friendly test names, colour-coded release verdict, pass-rate trend chart, failure table grouped by feature area, screenshot gallery, coverage gaps, and optional requirements traceability matrix. Opens in any browser, printable to PDF.",
     inputSchema: z.object({
       title: z.string().optional()
         .describe("Report title shown in the header. Default: 'CouponHive QA Report'."),
@@ -221,7 +224,11 @@ mcpServer.registerTool(
       openInBrowser: z.boolean().optional()
         .describe("Open the generated HTML file in the default browser immediately after saving. Default: false."),
       outputPath: z.string().optional()
-        .describe("Override the output file path. Default: <reportsDir>/report-<timestamp>.html.")
+        .describe("Override the output file path. Default: <reportsDir>/report-<timestamp>.html."),
+      project_name: z.string().optional()
+        .describe("Project name — when supplied, automatically reads memory/requirements/{project_name}-coverage.json and adds requirements traceability sections to the report."),
+      include_requirements: z.boolean().optional()
+        .describe("Include requirements traceability sections in the report. Default: true when project_name is supplied.")
     })
   },
   async (input) => generateHtmlReport(input)
@@ -314,6 +321,86 @@ mcpServer.registerTool(
   async (input) => listCrawls(input)
 );
 
+// Register read_requirements tool
+mcpServer.registerTool(
+  "read_requirements",
+  {
+    description: "Read a requirements document (docx/pdf/xlsx/txt), parse individual requirements, assign REQ-NNN IDs, classify each by type (functional/validation/security/performance/ui/integration) and priority (high/medium/low), and save to memory/requirements/{project_name}-requirements.json.",
+    inputSchema: z.object({
+      project_name: z.string()
+        .describe("Project name for this requirements set, e.g. 'BillingPortal'."),
+      file_path: z.string()
+        .describe("Absolute path to the requirements document, e.g. 'C:\\\\docs\\\\BillingPortal-Requirements.docx'."),
+      file_type: z.enum(['docx', 'pdf', 'xlsx', 'txt'])
+        .describe("Document format: docx (Word), pdf, xlsx (Excel), txt (plain text).")
+    })
+  },
+  async (input) => readRequirements(input)
+);
+
+// Register generate_tests_from_requirements tool
+mcpServer.registerTool(
+  "generate_tests_from_requirements",
+  {
+    description: "ADDS requirement-traced Gherkin scenarios to an existing .feature file and ADDS only new step definitions to an existing steps file. Never overwrites scaffold output. Language (C#/TypeScript) is read from the blueprint automatically. Requires read_requirements and scaffold_project to have been run first.",
+    inputSchema: z.object({
+      project_name: z.string()
+        .describe("Project name matching a saved requirements set, e.g. 'BillingPortal'."),
+      blueprint_name: z.string()
+        .describe("Blueprint name to determine language and coding patterns, e.g. 'CouponHive' (C#) or 'TSStarter' (TypeScript)."),
+      output_path: z.string()
+        .describe("Directory where scaffold_project wrote the existing .feature and steps files."),
+      requirements_filter: z.object({
+        sections:  z.array(z.string()).optional().describe("Only include requirements from these sections. Empty = all."),
+        types:     z.array(z.string()).optional().describe("Only include these requirement types. Empty = all."),
+        priority:  z.enum(['all', 'high', 'medium']).optional().describe("Filter by priority. Default: all.")
+      }).optional()
+        .describe("Optional filter to generate tests for a subset of requirements.")
+    })
+  },
+  async (input) => generateTestsFromRequirements(input)
+);
+
+// Register requirements_coverage tool
+mcpServer.registerTool(
+  "requirements_coverage",
+  {
+    description: "Scan .feature files for @REQ-NNN tags, cross-reference saved requirements, optionally check test results, and save a coverage JSON to memory/requirements/{project_name}-coverage.json. Returns a plain text summary. Language agnostic — reads .feature files only. Run generate_html_report afterwards for the full traceability matrix.",
+    inputSchema: z.object({
+      project_name: z.string()
+        .describe("Project name matching a saved requirements set, e.g. 'BillingPortal'."),
+      feature_files_path: z.string()
+        .describe("Root directory to scan recursively for *.feature files."),
+      include_test_results: z.boolean().optional()
+        .describe("Cross-reference latest test results from reports/latest.json. Default: true.")
+    })
+  },
+  async (input) => requirementsCoverage(input)
+);
+
+// Register get_requirements tool
+mcpServer.registerTool(
+  "get_requirements",
+  {
+    description: "Read the saved requirements JSON for a project from memory/requirements/{project_name}-requirements.json. Returns the full structured document with all requirements, IDs, types, priorities, and test mapping status.",
+    inputSchema: z.object({
+      project_name: z.string()
+        .describe("Project name whose requirements to retrieve, e.g. 'BillingPortal'.")
+    })
+  },
+  async (input) => getRequirements(input)
+);
+
+// Register list_requirements tool
+mcpServer.registerTool(
+  "list_requirements",
+  {
+    description: "List all saved requirement sets in memory/requirements/. Shows project name, read date, source file, total requirements, and coverage percentage (if requirements_coverage has been run). Use this to check what requirements are available before running generate_tests_from_requirements.",
+    inputSchema: z.object({})
+  },
+  async (input) => listRequirements(input)
+);
+
 // Register qa_orchestrate tool
 mcpServer.registerTool(
   "qa_orchestrate",
@@ -369,6 +456,12 @@ async function main() {
   console.error("  • crawl_page:           Real browser → discover elements → generate Page.cs");
   console.error("  • get_crawl:            Read saved crawl JSON for a project");
   console.error("  • list_crawls:          List all saved page crawls");
+  console.error("  Requirements Traceability:");
+  console.error("  • read_requirements:               Read docx/pdf/xlsx/txt → parse REQ-NNN IDs");
+  console.error("  • generate_tests_from_requirements: ADD @REQ-XXX scenarios to existing scaffold");
+  console.error("  • requirements_coverage:           Scan .feature files → coverage JSON");
+  console.error("  • get_requirements:                Read saved requirements JSON");
+  console.error("  • list_requirements:               List all saved requirement sets");
   console.error("  Orchestration:");
   console.error("  • qa_orchestrate:      Intelligent agent loop — dynamically chains all tools above");
   console.error("\nServer is ready for MCP connections on stdio...");

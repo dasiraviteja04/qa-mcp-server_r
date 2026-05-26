@@ -14,6 +14,7 @@ import { fileURLToPath }  from 'url';
 
 import { ReportService }   from './report.service.js';
 import type { ExecutionReport, TestResult, FailureAnalysis } from '../types/mcp.types.js';
+import type { RequirementsCoverage, ProjectRequirements } from '../types/requirements.types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -33,6 +34,10 @@ export interface HtmlReportOptions {
   openInBrowser?: boolean;
   /** Override the output path (default: <reportsDir>/report-YYYY-MM-DD-HHmmss.html) */
   outputPath?: string;
+  /** Project name — used to load requirements coverage from memory/ */
+  projectName?: string;
+  /** Include requirements traceability sections (default: true) */
+  includeRequirements?: boolean;
 }
 
 interface LabelEntry {
@@ -206,6 +211,253 @@ export class HtmlReportService {
     }
   }
 
+  // ── Requirements data loader ───────────────────────────────────────────────
+
+  private loadRequirementsData(
+    projectName?: string,
+    include?: boolean,
+  ): { coverage: RequirementsCoverage | null; requirements: ProjectRequirements | null } {
+    if (include === false || !projectName) return { coverage: null, requirements: null };
+
+    const memBase = path.join(__dirname, '..', '..', 'memory', 'requirements');
+
+    let coverage:     RequirementsCoverage  | null = null;
+    let requirements: ProjectRequirements   | null = null;
+
+    // Try coverage first (richer data)
+    try {
+      const cp = path.join(memBase, `${projectName}-coverage.json`);
+      if (fs.existsSync(cp)) {
+        coverage = JSON.parse(fs.readFileSync(cp, 'utf-8')) as RequirementsCoverage;
+      }
+    } catch { /* ignore */ }
+
+    // Try requirements doc for req text (coverage only has IDs)
+    try {
+      const rp = path.join(memBase, `${projectName}-requirements.json`);
+      if (fs.existsSync(rp)) {
+        requirements = JSON.parse(fs.readFileSync(rp, 'utf-8')) as ProjectRequirements;
+      }
+    } catch { /* ignore */ }
+
+    return { coverage, requirements };
+  }
+
+  // ── Requirements HTML builder ───────────────────────────────────────────────
+
+  private buildRequirementsHtml(
+    coverage:     RequirementsCoverage,
+    requirements: ProjectRequirements | null,
+  ): string {
+    const { summary, details, failingRequirements, notCoveredRequirements, verdict } = coverage;
+
+    const pct         = summary.coveragePercent;
+    const barColour   = pct >= 80 ? '#27ae60' : pct >= 50 ? '#f39c12' : '#c0392b';
+    const verdictColour =
+      verdict === 'SAFE'    ? '#27ae60' :
+      verdict === 'CAUTION' ? '#f39c12' :
+      verdict === 'BLOCK'   ? '#c0392b' :
+      '#2980b9';
+
+    // Helper — get req text from requirements doc
+    const reqText = (id: string): string => {
+      if (!requirements) return id;
+      return requirements.requirements.find(r => r.id === id)?.text ?? id;
+    };
+    const reqSection = (id: string): string => {
+      return requirements?.requirements.find(r => r.id === id)?.section ?? '—';
+    };
+    const reqType = (id: string): string => {
+      return requirements?.requirements.find(r => r.id === id)?.type ?? '—';
+    };
+    const reqPriority = (id: string): string => {
+      return requirements?.requirements.find(r => r.id === id)?.priority ?? '—';
+    };
+
+    // ── Summary cards ─────────────────────────────────────────────────────────
+    const summaryCards = `
+      <div class="req-summary-cards">
+        <div class="card card-blue">
+          <div class="card-value">${summary.total}</div>
+          <div class="card-label">Total Reqs</div>
+        </div>
+        <div class="card ${pct >= 80 ? 'card-green' : pct >= 50 ? 'card-amber' : 'card-red'}">
+          <div class="card-value">${pct}%</div>
+          <div class="card-label">Covered</div>
+        </div>
+        <div class="card ${summary.failing > 0 ? 'card-red' : 'card-green'}">
+          <div class="card-value">${summary.failing}</div>
+          <div class="card-label">Failing</div>
+        </div>
+        <div class="card ${summary.notCovered > 0 ? 'card-amber' : 'card-green'}">
+          <div class="card-value">${summary.notCovered}</div>
+          <div class="card-label">No Test</div>
+        </div>
+        <div class="card" style="border-top: 3px solid ${verdictColour};">
+          <div class="card-value" style="font-size:18px;color:${verdictColour};">${verdict}</div>
+          <div class="card-label">Req Verdict</div>
+        </div>
+      </div>`;
+
+    // ── Coverage progress bar ─────────────────────────────────────────────────
+    const progressBar = `
+      <div style="margin-top:16px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;
+                    color:#555;margin-bottom:4px;">
+          <span>Requirements Coverage: <strong>${summary.covered} / ${summary.total}</strong></span>
+          <span style="color:${barColour};font-weight:700;">${pct}%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" style="width:${pct}%;background:${barColour};"></div>
+        </div>
+      </div>`;
+
+    // ── Traceability matrix table ─────────────────────────────────────────────
+    const allIds = Object.keys(details).sort((a, b) => {
+      const order = (id: string) => {
+        const d = details[id];
+        if (!d) return 3;
+        if (d.testResult === 'failed') return 0;
+        if (d.covered)                 return 1;
+        return 2;
+      };
+      return order(a) - order(b);
+    });
+
+    const tableRows = allIds.map(id => {
+      const d         = details[id]!;
+      const status    = !d.covered              ? 'NO TEST'
+                      : d.testResult === 'passed' ? 'PASSED'
+                      : d.testResult === 'failed' ? 'FAILED'
+                      : 'NOT RUN';
+      const rowClass  = status === 'FAILED'  ? 'row-failed'
+                      : status === 'NO TEST' ? 'row-notest'
+                      : '';
+      const statusCls = status === 'PASSED'  ? 'status-passed'
+                      : status === 'FAILED'  ? 'status-failed'
+                      : status === 'NO TEST' ? 'status-notest'
+                      : 'status-notrun';
+      const priCls    = `priority-${reqPriority(id)}`;
+      const scenName  = d.scenarioName ? esc(d.scenarioName.substring(0, 60)) : '—';
+
+      return `
+        <tr class="${rowClass}">
+          <td style="padding:8px 12px;white-space:nowrap;">
+            <span class="req-id">${esc(id)}</span>
+          </td>
+          <td style="padding:8px 12px;font-size:12px;max-width:280px;">
+            ${esc(reqText(id).substring(0, 90))}
+          </td>
+          <td style="padding:8px 12px;font-size:11px;color:#666;">${esc(reqSection(id))}</td>
+          <td style="padding:8px 12px;font-size:11px;color:#666;">${esc(reqType(id))}</td>
+          <td style="padding:8px 12px;">
+            <span class="badge ${priCls}">${esc(reqPriority(id))}</span>
+          </td>
+          <td style="padding:8px 12px;">
+            <span class="badge ${statusCls}">${status}</span>
+          </td>
+          <td style="padding:8px 12px;font-size:11px;color:#555;max-width:200px;">${scenName}</td>
+        </tr>`;
+    }).join('');
+
+    const matrix = `
+      <div style="overflow-x:auto;">
+        <table class="req-table">
+          <thead>
+            <tr>
+              <th>REQ ID</th>
+              <th>Requirement</th>
+              <th>Section</th>
+              <th>Type</th>
+              <th>Priority</th>
+              <th>Status</th>
+              <th>Scenario</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>`;
+
+    // ── Failing requirements detail ───────────────────────────────────────────
+    let failingCards = '';
+    if (failingRequirements.length > 0) {
+      const cards = failingRequirements.map(id => {
+        const pri = reqPriority(id);
+        const isHighPri = pri === 'high';
+        return `
+          <div class="req-failure-card">
+            ${isHighPri ? `<div class="impact-block">⛔ BLOCKS RELEASE</div>` : ''}
+            <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:8px;">
+              <span class="req-id">${esc(id)}</span>
+              <span class="badge priority-${pri}">${pri}</span>
+              <span style="font-size:11px;color:#888;">${esc(reqSection(id))}</span>
+            </div>
+            <div style="font-weight:600;color:#1a1a1a;margin-bottom:4px;font-size:13px;">
+              ${esc(reqText(id).substring(0, 120))}
+            </div>
+            ${details[id]?.scenarioName
+              ? `<div style="font-size:12px;color:#555;margin-top:6px;">
+                   Scenario: ${esc(details[id]!.scenarioName!)}
+                 </div>`
+              : ''}
+          </div>`;
+      }).join('');
+      failingCards = `
+        <div class="section">
+          <div class="section-header">❌ Failing Requirements (${failingRequirements.length})</div>
+          <div class="section-body">${cards}</div>
+        </div>`;
+    }
+
+    // ── Not covered list ──────────────────────────────────────────────────────
+    let notCoveredCards = '';
+    if (notCoveredRequirements.length > 0) {
+      const cards = notCoveredRequirements.map(id => {
+        const pri = reqPriority(id);
+        return `
+          <div class="req-notest-card">
+            <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:6px;">
+              <span class="req-id">${esc(id)}</span>
+              <span class="badge priority-${pri}">${pri}</span>
+              <span style="font-size:11px;color:#888;">${esc(reqSection(id))}</span>
+            </div>
+            <div style="font-size:13px;color:#333;margin-bottom:4px;">
+              ${esc(reqText(id).substring(0, 120))}
+            </div>
+            <div style="font-size:11px;color:#e67e22;margin-top:4px;">
+              💡 Add test in next sprint using generate_tests_from_requirements
+            </div>
+          </div>`;
+      }).join('');
+      notCoveredCards = `
+        <div class="section">
+          <div class="section-header">⚠️ Not Covered — No Test Exists (${notCoveredRequirements.length})</div>
+          <div class="section-body">${cards}</div>
+        </div>`;
+    }
+
+    return `
+      <!-- ── Requirements Summary ──────────────────────────────── -->
+      <div class="section" id="req-section">
+        <div class="section-header">📋 Requirements Traceability</div>
+        <div class="section-body">
+          ${summaryCards}
+          ${progressBar}
+        </div>
+      </div>
+
+      <!-- ── Traceability Matrix ────────────────────────────────── -->
+      <div class="section">
+        <div class="section-header">🗂️ Traceability Matrix</div>
+        <div class="section-body" style="padding:0;">
+          ${matrix}
+        </div>
+      </div>
+
+      ${failingCards}
+      ${notCoveredCards}`;
+  }
+
   // ── Risk verdict from report data ──────────────────────────────────────────
 
   private deriveVerdict(report: ExecutionReport, failures: FailureAnalysis[]): {
@@ -258,6 +510,10 @@ export class HtmlReportService {
     const failures = this.reportService.analyzeFailures();
     const trend    = this.getTrendData();
     const shots    = this.findScreenshots();
+
+    // Load requirements data — returns nulls when missing (backwards compatible)
+    const { coverage: reqCoverage, requirements: reqDoc } =
+      this.loadRequirementsData(options.projectName, options.includeRequirements);
 
     if (!report) {
       throw new Error('No test report found. Run tests first.');
@@ -585,6 +841,30 @@ export class HtmlReportService {
       color: #aaa;
     }
 
+    /* ── Requirements traceability ── */
+    .req-summary-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 14px; }
+    .progress-track { height: 12px; background: #eef0f4; border-radius: 6px; overflow: hidden; }
+    .progress-fill  { height: 100%; border-radius: 6px; transition: width .4s; }
+    .req-table th   { background: #f7f8fa; }
+    .req-id         { font-family: monospace; font-size: 12px; font-weight: 700; color: #2c3e6b;
+                      background: #eef2ff; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+    .priority-high  { background: #fde8e8; color: #c0392b; }
+    .priority-medium{ background: #fef3e2; color: #e67e22; }
+    .priority-low   { background: #e8f8f0; color: #27ae60; }
+    .status-passed  { background: #e8f8f0; color: #27ae60; }
+    .status-failed  { background: #fde8e8; color: #c0392b; }
+    .status-notest  { background: #fdf3e7; color: #e67e22; }
+    .status-notrun  { background: #f0f0f0; color: #888; }
+    .row-failed     { background: #fff8f8; }
+    .row-notest     { background: #fffbf5; }
+    .req-failure-card { background: #fff; border: 1px solid #f0b4b4; border-radius: 8px;
+                        padding: 16px; margin-bottom: 12px; position: relative; }
+    .req-notest-card  { background: #fffbf5; border: 1px solid #f5d87a; border-radius: 8px;
+                        padding: 14px; margin-bottom: 10px; }
+    .impact-block   { position: absolute; top: 12px; right: 12px; background: #c0392b;
+                      color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px;
+                      border-radius: 4px; letter-spacing: .3px; }
+
     /* ── Print styles ── */
     @media print {
       body { background: #fff; }
@@ -655,6 +935,8 @@ export class HtmlReportService {
       ${sparkline}
     </div>
   </div>` : ''}
+
+  ${reqCoverage ? this.buildRequirementsHtml(reqCoverage, reqDoc) : ''}
 
   <!-- ── Failures ─────────────────────────────────────────────────── -->
   <div class="section">

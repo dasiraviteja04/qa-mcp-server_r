@@ -5,20 +5,24 @@
  * skeleton that exactly matches the original project's coding patterns:
  * same base classes, same constructor injection, same naming style.
  *
+ * Supports both C# (Reqnroll/NUnit) and TypeScript (Playwright/Cucumber) projects.
+ * Language is determined by the blueprint's `language` field (defaults to 'csharp').
+ *
  * Inputs:
  *   blueprint_name    — name of saved blueprint (e.g. "CouponHive")
  *   new_project_name  — name for the new project (e.g. "BillingPortal")
  *   output_path       — directory to write generated files into
  *   page_url          — (optional) crawl page for selectors as comments
- *   db_tables         — (optional) generate DBHelper with these table names
+ *   db_tables         — (optional) generate DBHelper with these table names (C# only)
  */
 
 import * as fs   from 'fs';
 import * as path from 'path';
-import { FrameworkMemoryService } from '../services/frameworkMemory.service.js';
-import { LiveCrawlerService }     from '../services/liveCrawler.service.js';
-import { DbSchemaService }        from '../services/dbSchema.service.js';
-import type { ToolOutput }        from '../types/mcp.types.js';
+import { FrameworkMemoryService }      from '../services/frameworkMemory.service.js';
+import { LiveCrawlerService }          from '../services/liveCrawler.service.js';
+import { DbSchemaService }             from '../services/dbSchema.service.js';
+import { TypeScriptGeneratorService }  from '../services/typescriptGenerator.service.js';
+import type { ToolOutput }             from '../types/mcp.types.js';
 import type { FrameworkBlueprint, ScaffoldResult } from '../types/framework.types.js';
 
 interface ScaffoldInput {
@@ -393,6 +397,38 @@ async function scaffold(input: ScaffoldInput): Promise<ScaffoldResult & { usedCr
 }
 
 // ---------------------------------------------------------------------------
+// TypeScript scaffold (additive — does NOT touch the C# scaffold() above)
+// ---------------------------------------------------------------------------
+
+async function scaffoldTypeScript(
+  input:     ScaffoldInput,
+  blueprint: FrameworkBlueprint,
+): Promise<{ filesGenerated: string[]; warnings: string[]; usedSchema: boolean }> {
+  const name   = input.new_project_name.trim();
+  const outDir = input.output_path.trim();
+
+  const schemaSvc  = new DbSchemaService();
+  let   usedSchema = false;
+  let   dbTables   = undefined;
+
+  if (schemaSvc.hasSchema(name)) {
+    try {
+      const schema = schemaSvc.loadSchema(name);
+      dbTables     = schema.tables;
+      usedSchema   = true;
+    } catch { /* fall through */ }
+  }
+
+  const generator = new TypeScriptGeneratorService();
+  const result    = await generator.generateProject(name, outDir, blueprint, {
+    ...(input.page_url ? { pageUrl: input.page_url } : {}),
+    ...(dbTables       ? { dbTables }                : {}),
+  });
+
+  return { ...result, usedSchema };
+}
+
+// ---------------------------------------------------------------------------
 // MCP Tool export
 // ---------------------------------------------------------------------------
 
@@ -408,8 +444,57 @@ export async function scaffoldProject(input: ScaffoldInput): Promise<ToolOutput>
       return { content: [{ type: 'text', text: '❌ output_path is required.' }], isError: true };
     }
 
+    const memSvc    = new FrameworkMemoryService();
+    const blueprint = memSvc.loadBlueprint(input.blueprint_name.trim());
+    const name      = input.new_project_name.trim();
+    const language  = blueprint.language ?? 'csharp';
+
+    // ── Route by language ────────────────────────────────────────────────────
+    if (language === 'typescript') {
+      const { filesGenerated, warnings, usedSchema } = await scaffoldTypeScript(input, blueprint);
+
+      const lines: string[] = [
+        `✅ TypeScript project "${name}" scaffolded from blueprint "${input.blueprint_name}"`,
+        ``,
+        `📁 Output directory: ${input.output_path}`,
+        usedSchema
+          ? `🗄️  DB helper : typed interfaces from memory/schemas/${name}-schema.json`
+          : `📝 DB helper : placeholder template (run read_db_schema to get real columns)`,
+        ``,
+        `📄 Files generated (${filesGenerated.length}):`,
+        ...filesGenerated.map(f => `   • ${path.relative(input.output_path, f)}`),
+        ``,
+      ];
+
+      if (warnings.length > 0) {
+        lines.push(`⚠️  Warnings:`);
+        warnings.forEach(w => lines.push(`   • ${w}`));
+        lines.push('');
+      }
+
+      const isCucumber = blueprint.typescript?.testFramework === 'cucumber' ||
+                         blueprint.stepDefinition.bindingStyle.includes('@cucumber/cucumber');
+
+      lines.push(
+        `🚀 Next steps:`,
+        `   1. cd ${input.output_path}`,
+        `   2. cp .env.template .env  →  fill in BASE_URL and DB_CONNECTION_STRING`,
+        `   3. npm install`,
+        `   4. npx playwright install`,
+        `   5. Review locators in tests/${name}.page.ts`,
+        isCucumber
+          ? `   6. Write scenarios in tests/${name}.feature`
+          : `   6. Write tests in tests/${name}.steps.ts`,
+        ``,
+        `💡 All files follow the "${input.blueprint_name}" TypeScript pattern:`,
+        `   Same locator style, same async/await, same export conventions.`,
+      );
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    }
+
+    // ── C# path — unchanged from original ───────────────────────────────────
     const { usedCrawl, usedSchema, ...result } = await scaffold(input);
-    const name = input.new_project_name.trim();
 
     const lines: string[] = [
       `✅ Project "${name}" scaffolded from blueprint "${input.blueprint_name}"`,

@@ -22,6 +22,11 @@ import { listCrawls    as listCrawlsImpl   } from './listCrawls.js';
 import { readDbSchema  as readDbSchemaImpl } from './readDbSchema.js';
 import { getSchema     as getSchemaImpl    } from './getSchema.js';
 import { listSchemas   as listSchemasImpl  } from './listSchemas.js';
+import { readRequirements          as readRequirementsImpl          } from './readRequirements.js';
+import { generateTestsFromRequirements as generateTestsFromRequirementsImpl } from './generateTestsFromRequirements.js';
+import { requirementsCoverage      as requirementsCoverageImpl      } from './requirementsCoverage.js';
+import { getRequirements           as getRequirementsImpl           } from './getRequirements.js';
+import { listRequirements          as listRequirementsImpl          } from './listRequirements.js';
 
 export async function listTests(input: any): Promise<any> {
   try {
@@ -243,6 +248,56 @@ export async function listSchemas(input: any): Promise<any> {
   } catch (error: any) {
     return {
       content: [{ type: 'text', text: `Error in list_schemas: ${error.message}` }]
+    };
+  }
+}
+
+export async function readRequirements(input: any): Promise<any> {
+  try {
+    return await readRequirementsImpl(input);
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error in read_requirements: ${error.message}` }]
+    };
+  }
+}
+
+export async function generateTestsFromRequirements(input: any): Promise<any> {
+  try {
+    return await generateTestsFromRequirementsImpl(input);
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error in generate_tests_from_requirements: ${error.message}` }]
+    };
+  }
+}
+
+export async function requirementsCoverage(input: any): Promise<any> {
+  try {
+    return await requirementsCoverageImpl(input);
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error in requirements_coverage: ${error.message}` }]
+    };
+  }
+}
+
+export async function getRequirements(input: any): Promise<any> {
+  try {
+    return await getRequirementsImpl(input);
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error in get_requirements: ${error.message}` }]
+    };
+  }
+}
+
+export async function listRequirements(input: any): Promise<any> {
+  try {
+    return await listRequirementsImpl(input);
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error in list_requirements: ${error.message}` }]
     };
   }
 }

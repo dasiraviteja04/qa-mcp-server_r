@@ -2,10 +2,30 @@
  * MCP Tool: Assess release risk based on UIAutomationTests results and QA policies.
  */
 
+import * as fs   from 'fs';
+import * as path from 'path';
+import { fileURLToPath }  from 'url';
 import { PlaywrightService } from '../services/playwright.service.js';
-import { PolicyService } from '../services/policy.service.js';
+import { PolicyService }     from '../services/policy.service.js';
 import type { ToolInput, ToolOutput, ReleaseRiskAssessment } from '../types/mcp.types.js';
-import { getEnvironmentConfig } from '../config/environments.js';
+import { getEnvironmentConfig }       from '../config/environments.js';
+import type { RequirementsCoverage }  from '../types/requirements.types.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+
+function loadRequirementsCoverage(projectName: string): RequirementsCoverage | null {
+  try {
+    const coveragePath = path.join(
+      __dirname, '..', '..', 'memory', 'requirements',
+      `${projectName}-coverage.json`
+    );
+    if (!fs.existsSync(coveragePath)) return null;
+    return JSON.parse(fs.readFileSync(coveragePath, 'utf-8')) as RequirementsCoverage;
+  } catch {
+    return null;
+  }
+}
 
 let playwrightService: PlaywrightService | null = null;
 let policyService: PolicyService | null = null;
@@ -153,8 +173,13 @@ function formatRiskAssessment(assessment: ReleaseRiskAssessment): string {
  * Get Release Risk Tool
  * Reads the latest test report, applies financial-domain QA policies,
  * and returns a LOW / MEDIUM / HIGH risk assessment with recommendation.
+ *
+ * Also checks memory/requirements/{project_name}-coverage.json when
+ * project_name is supplied — failing/uncovered requirements escalate risk.
  */
-export async function getReleaseRisk(input?: ToolInput): Promise<ToolOutput> {
+export async function getReleaseRisk(
+  input?: ToolInput & { project_name?: string }
+): Promise<ToolOutput> {
   try {
     const { playwright, policy } = getServices();
 
@@ -212,8 +237,56 @@ export async function getReleaseRisk(input?: ToolInput): Promise<ToolOutput> {
       totalTests: report.totalTests
     }, policy);
 
+    let output = formatRiskAssessment(assessment);
+
+    // ── Requirements check (additive — skipped when no coverage file exists) ──
+    if (input?.project_name) {
+      const reqCoverage = loadRequirementsCoverage(input.project_name);
+      if (reqCoverage) {
+        const reqLines: string[] = ['\n**Requirements Traceability:**'];
+
+        if (reqCoverage.failingRequirements.length > 0) {
+          // Failing requirements escalate to HIGH risk
+          if (assessment.risk !== 'HIGH') {
+            assessment.risk = 'HIGH';
+          }
+          reqLines.push(
+            `  ❌ ${reqCoverage.failingRequirements.length} requirement(s) failing: ` +
+            reqCoverage.failingRequirements.join(', ')
+          );
+        }
+
+        if (reqCoverage.notCoveredRequirements.length > 0) {
+          if (assessment.risk === 'LOW') assessment.risk = 'MEDIUM';
+          reqLines.push(
+            `  ⚠️  ${reqCoverage.notCoveredRequirements.length} requirement(s) have no tests: ` +
+            reqCoverage.notCoveredRequirements.slice(0, 8).join(', ') +
+            (reqCoverage.notCoveredRequirements.length > 8 ? '…' : '')
+          );
+        }
+
+        if (
+          reqCoverage.failingRequirements.length === 0 &&
+          reqCoverage.notCoveredRequirements.length === 0
+        ) {
+          reqLines.push(
+            `  ✅ All ${reqCoverage.summary.total} requirements covered and passing ` +
+            `(${reqCoverage.summary.coveragePercent}%)`
+          );
+        }
+
+        reqLines.push(
+          `\n  Coverage: ${reqCoverage.summary.covered}/${reqCoverage.summary.total} ` +
+          `(${reqCoverage.summary.coveragePercent}%) — ` +
+          `run generate_html_report for full traceability matrix.`
+        );
+
+        output += reqLines.join('\n');
+      }
+    }
+
     return {
-      content: [{ type: 'text', text: formatRiskAssessment(assessment) }]
+      content: [{ type: 'text', text: output }]
     };
   } catch (error: any) {
     return {
