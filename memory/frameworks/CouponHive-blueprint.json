@@ -1,0 +1,91 @@
+{
+  "projectName": "CouponHive",
+  "language": "csharp",
+  "scannedAt": "2026-05-15T12:51:57.937Z",
+  "projectPath": "C:/Users/Ravi Teja Dasi/source/repos/Explore/Playwright_AutomationDB/Explore/Code/UIAutomationTests/UIAutomationTests",
+  "pageObject": {
+    "baseClass": null,
+    "constructorParams": [
+      "IPage"
+    ],
+    "locatorStyle": "private readonly ILocator properties",
+    "asyncPattern": "async Task methods",
+    "exampleMethods": [
+      "ClickViewFullPaymentSchedule",
+      "ClickCancelLoanButton",
+      "ClickLoanDetailsButton",
+      "ClickEditCustomerProfileButton",
+      "ClickCopyBankVerificationButton"
+    ],
+    "namespace": "UIAutomationTests.Pages.CSRD"
+  },
+  "stepDefinition": {
+    "baseClass": null,
+    "injection": [
+      "ScenarioContext",
+      "SessionContext"
+    ],
+    "bindingStyle": "[Given]/[When]/[Then] attributes",
+    "namingConvention": "WhenI... / ThenThe... / GivenI...",
+    "exampleSteps": [
+      "I search for a loan in Admin Portal",
+      "I search for a loan in Admin Portal",
+      "I search for the already created loan id in Admin Portal",
+      "I search for the already created loan id in Admin Portal",
+      "I schedule Payoff for loanId {string}"
+    ],
+    "namespace": "UIAutomationTests.StepDefinitions.AdminPortal"
+  },
+  "dbHelper": {
+    "orm": "unknown ORM",
+    "connectionSource": "AzureDevOpsLibraryHelper",
+    "connectionMethod": "GetConnectionString",
+    "exampleMethods": [
+      "WarmUpAsync",
+      "EnsureTenantExistsAsync",
+      "GetTenantIdAsync",
+      "CleanupCouponAsync",
+      "CleanupAllCouponsForTenantAsync"
+    ],
+    "namespace": "UIAutomationTests.Support.CouponHive"
+  },
+  "testContext": {
+    "fields": [],
+    "constructorParams": [
+      "DbContextOptions<CouponHiveTestContext>"
+    ],
+    "namespace": "UIAutomationTests.Support.CouponHive"
+  },
+  "projectSetup": {
+    "targetFramework": "net8.0",
+    "testFramework": "NUnit + Reqnroll",
+    "packages": [
+      "Bogus",
+      "Faker.Net",
+      "Mailosaur",
+      "Microsoft.EntityFrameworkCore",
+      "Microsoft.EntityFrameworkCore.SqlServer",
+      "Microsoft.Extensions.Configuration",
+      "Microsoft.Extensions.Configuration.Abstractions",
+      "Microsoft.Extensions.Configuration.EnvironmentVariables",
+      "Microsoft.Extensions.Configuration.Json",
+      "Microsoft.NET.Test.Sdk",
+      "Microsoft.Playwright.NUnit",
+      "Reqnroll.NUnit",
+      "nunit",
+      "NUnit3TestAdapter",
+      "RestSharp",
+      "Shouldly"
+    ],
+    "runsettingsPattern": "RunSettings block",
+    "rootNamespace": ""
+  },
+  "scanSummary": {
+    "pageFiles": 46,
+    "stepFiles": 14,
+    "dbHelperFiles": 1,
+    "contextFiles": 1,
+    "runsettings": 7,
+    "csprojFiles": 1
+  }
+}

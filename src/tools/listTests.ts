@@ -1,249 +1,260 @@
 /**
- * MCP Tool: List available tests with metadata
+ * MCP Tool: List available tests by parsing Gherkin .feature files.
+ * Replaces the old Playwright --list approach.
  */
 
-import { PlaywrightService } from '../services/playwright.service.js';
-import { ReportService } from '../services/report.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ToolInput, ToolOutput, TestMetadata } from '../types/mcp.types.js';
 import { getEnvironmentConfig } from '../config/environments.js';
 
-let playwrightService: PlaywrightService | null = null;
+// ---------------------------------------------------------------------------
+// Gherkin feature file parser
+// ---------------------------------------------------------------------------
 
-/**
- * Initialize the service on first call
- */
-function getService(): PlaywrightService {
-  if (!playwrightService) {
-    const config = getEnvironmentConfig();
-    playwrightService = new PlaywrightService({
-      projectRoot: config.playwrightProjectRoot,
-      reportOutputDir: config.reportOutputDir
-    });
-  }
-  return playwrightService;
+interface ParsedScenario {
+  featureName: string;
+  featureTags: string[];
+  scenarioName: string;
+  scenarioTags: string[];
+  allTags: string[];
+  filePath: string;
 }
 
 /**
- * Parse test metadata from test names and history
+ * Recursively find all .feature files under a directory.
  */
-function extractTestMetadata(testName: string, reportService: ReportService): TestMetadata {
-  // Extract tags from test name (e.g., "@critical @smoke")
-  const tagMatches = testName.match(/@\w+/g) || [];
-  const tags = tagMatches.map(t => t.substring(1));
+function findFeatureFiles(dir: string): string[] {
+  const results: string[] = [];
+  if (!fs.existsSync(dir)) return results;
 
-  // Determine criticality
-  let criticality: TestMetadata['criticality'] = 'medium';
-  if (tags.includes('critical')) criticality = 'critical';
-  else if (tags.includes('smoke')) criticality = 'high';
-  else if (tags.includes('regression')) criticality = 'medium';
-  else if (tags.includes('e2e')) criticality = 'high';
-
-  // If no tags found in the Playwright --list output, try to locate the
-  // source file and extract the `tag` option from the test declaration.
-  if (tags.length === 0) {
-    try {
-      const projectRoot = getService().getProjectRoot();
-      const srcTags = extractTagsFromSource(testName, projectRoot);
-      if (srcTags.length > 0) {
-        // prepend extracted tags (they may already exclude '@')
-        srcTags.forEach(t => { if (!tags.includes(t)) tags.push(t); });
-      }
-    } catch (err) {
-      // ignore - best-effort extraction
-    }
-  }
-
-  // Extract feature from test structure
-  const feature = extractFeatureFromName(testName);
-
-  // Get history to check reliability
-  const history = reportService.getTestHistory(testName, 5);
-  const failureRate = history.filter(t => t.status === 'failed').length / Math.max(history.length, 1);
-  
-  // Adjust criticality based on failure rate
-  if (failureRate > 0.4 && criticality === 'critical') {
-    // Critical tests that fail frequently might need attention, but keep criticality
-  }
-
-  return {
-    name: testName,
-    tags,
-    feature,
-    criticality
-  };
-}
-
-/**
- * Try to extract tags from the test source file based on the Playwright
- * list output which usually contains a filename and the test title.
- */
-function extractTagsFromSource(testName: string, projectRoot: string): string[] {
-  // Attempt to parse filename like 'login.spec.ts:13:7' from Playwright output
-  const fileMatch = testName.match(/(\S+\.spec\.(ts|js))(?:\:(\d+)\:\d+)?/i);
-  const titleParts = testName.split('›').map(p => p.trim()).filter(Boolean);
-  const testTitle = titleParts.length ? titleParts[titleParts.length - 1] : '';
-
-  if (!fileMatch) return [];
-  const filename = (fileMatch[1] || '');
-  if (!filename) return [];
-
-  // Find the file in the project tree
-  const filePath = findFileRecursively(projectRoot, filename);
-  if (!filePath) return [];
-
-  const content = fs.readFileSync(filePath, 'utf-8');
-
-  // Try to locate a `test('title', { tag: [...] }` or `test("title", { tag: '@smoke' }` pattern
-  const escapedTitle = escapeRegex(testTitle || '');
-  const pattern = 'test\\s*\\(\\s*["\'`]' + escapedTitle + '["\'`]\\s*,\\s*\\{([\\n\\s\\S]*?)\\}\\s*\\,';
-  const regex = new RegExp(pattern, 'm');
-  let match = content.match(regex);
-
-  // If not matched, try a looser match: find test title then look nearby for `tag:` within 10 lines
-  if (!match) {
-    const lines = content.split('\n');
-    const tt = testTitle || '';
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i] || '';
-      if (tt && line.indexOf(tt) !== -1) {
-        const start = Math.max(0, i - 5);
-        const end = Math.min(lines.length, i + 6);
-        const window = lines.slice(start, end).join('\n');
-        const m = window.match(/tag\s*:\s*(\[[^\]]*\]|['"`][^'"`]*['"`])/);
-        if (m) {
-          match = [m[0], m[1]] as any;
-          break;
-        }
-      }
-    }
-  }
-
-  if (!match) return [];
-
-  const tagSection = match[1] || match[0];
-  const tagMatches = Array.from(((tagSection || '').matchAll(/@?([a-zA-Z0-9_:-]+)/g))).map(m => (m && m[1]) ? m[1] : '').filter(Boolean);
-  return tagMatches.map(t => t.replace(/^@/, ''));
-}
-
-function findFileRecursively(dir: string, filename: string): string | null {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const e of entries) {
-    const full = path.join(dir, e.name);
-    if (e.isDirectory()) {
-      const found = findFileRecursively(full, filename);
-      if (found) return found;
-    } else if (e.isFile() && e.name === filename) {
-      return full;
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...findFeatureFiles(full));
+    } else if (entry.isFile() && entry.name.endsWith('.feature')) {
+      results.push(full);
     }
   }
-  return null;
-}
-
-function escapeRegex(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return results;
 }
 
 /**
- * Extract feature name from test name
+ * Parse a single .feature file and return all scenarios with their tags.
+ *
+ * Rules:
+ *  - Lines starting with @ are tag lines. Tags accumulate until the next
+ *    Feature: or Scenario: keyword resets the pending buffer.
+ *  - Feature-level tags attach to all scenarios in the file.
+ *  - Scenario-level tags are per-scenario only.
+ *  - Background: blocks are skipped (no scenario entry created).
  */
-function extractFeatureFromName(testName: string): string {
-  // Remove tags and parentheses
-  let clean = testName.replace(/@\w+/g, '').trim();
-  // Get first part before dash or space
-  const match = clean.match(/^[^\-]+/) || clean.match(/^\w+/);
-  return match ? match[0].trim() : 'general';
+function parseFeatureFile(filePath: string): ParsedScenario[] {
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const lines = content.split('\n');
+
+  const scenarios: ParsedScenario[] = [];
+  let featureName = '';
+  let featureTags: string[] = [];
+  let pendingTags: string[] = [];   // tags accumulated since last keyword
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    // Tag line – collect all @tag tokens on this line
+    if (line.startsWith('@')) {
+      const tags = line.match(/@[\w-]+/g) ?? [];
+      pendingTags.push(...tags.map(t => t.replace('@', '').toLowerCase()));
+      continue;
+    }
+
+    // Feature declaration
+    if (/^Feature:/i.test(line)) {
+      featureName = line.replace(/^Feature:/i, '').trim();
+      featureTags = [...pendingTags];
+      pendingTags = [];
+      continue;
+    }
+
+    // Background – ignore, reset pending tags
+    if (/^Background:/i.test(line)) {
+      pendingTags = [];
+      continue;
+    }
+
+    // Scenario or Scenario Outline
+    if (/^Scenario(\s+Outline)?:/i.test(line)) {
+      const scenarioName = line.replace(/^Scenario(\s+Outline)?:/i, '').trim();
+      const scenarioTags = [...pendingTags];
+      const allTags = [...new Set([...featureTags, ...scenarioTags])];
+
+      scenarios.push({
+        featureName,
+        featureTags,
+        scenarioName,
+        scenarioTags,
+        allTags,
+        filePath
+      });
+
+      pendingTags = [];
+      continue;
+    }
+
+    // Any non-empty, non-comment content that is not a Gherkin keyword
+    // resets the pending scenario tag buffer (steps, examples, etc.)
+    if (line.length > 0 && !line.startsWith('#') && !line.startsWith('|') && !line.startsWith('"')) {
+      const isKeyword = /^(Given|When|Then|And|But|Examples:|@)/i.test(line);
+      if (!isKeyword) {
+        pendingTags = [];
+      }
+    }
+  }
+
+  return scenarios;
+}
+
+// ---------------------------------------------------------------------------
+// Criticality mapping
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a scenario's combined tags to a criticality level.
+ *
+ * @production  → critical   (production health checks, highest priority)
+ * @staging     → high       (staging smoke paths)
+ * core financial tags        → medium (chargeoff, payoff, settlement, etc.)
+ * @regression  → medium     (default for regression suite)
+ * everything else            → low
+ */
+function determineCriticality(tags: string[]): TestMetadata['criticality'] {
+  const t = tags.map(x => x.toLowerCase());
+
+  if (t.includes('production'))                               return 'critical';
+  if (t.includes('staging'))                                  return 'high';
+  if (t.some(x => [
+    'chargeoff', 'paidoffsettlement', 'ontracksettlement',
+    'payoff', 'editloan', 'partialpayment', 'regenschedule'
+  ].includes(x)))                                             return 'medium';
+  if (t.includes('regression'))                               return 'medium';
+  return 'low';
 }
 
 /**
- * List Tests Tool
- * Returns all available tests with metadata
+ * Derive a short feature group name from the file path relative to Features/.
+ * E.g.  Features/RegressionTests/CSRD/ChargeOff/ChargeoffTest.feature → CSRD/ChargeOff
  */
+function featureGroupFromPath(filePath: string, featuresDir: string): string {
+  const rel = path.relative(featuresDir, path.dirname(filePath));
+  // strip the first segment (RegressionTests / StagingTests / ProductionTests)
+  const parts = rel.split(path.sep).filter(Boolean);
+  return parts.length > 1 ? parts.slice(1).join('/') : parts[0] ?? 'General';
+}
+
+// ---------------------------------------------------------------------------
+// Tool implementation
+// ---------------------------------------------------------------------------
+
 export async function listTests(input?: ToolInput): Promise<ToolOutput> {
   try {
-    const service = getService();
-    const reportService = new ReportService(getEnvironmentConfig().reportOutputDir);
+    const config = getEnvironmentConfig();
+    const featuresDir = config.featuresDir;
 
-    // Get test list from Playwright
-    const testNames = service.getTestList();
-
-    if (testNames.length === 0) {
+    if (!fs.existsSync(featuresDir)) {
       return {
         content: [{
           type: 'text',
-          text: 'No tests found in the Playwright project. Make sure tests exist and the project is configured correctly.'
+          text: `Features directory not found at: ${featuresDir}\n` +
+                `Set DOTNET_PROJECT_ROOT env var to override the C# project path.`
+        }],
+        isError: true
+      };
+    }
+
+    // Parse all .feature files
+    const featureFiles = findFeatureFiles(featuresDir);
+    const allScenarios: ParsedScenario[] = [];
+    for (const file of featureFiles) {
+      try {
+        allScenarios.push(...parseFeatureFile(file));
+      } catch {
+        // skip unreadable files
+      }
+    }
+
+    if (allScenarios.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: 'No scenarios found in the Features directory.'
         }]
       };
     }
 
-    // Filter by tag if provided
-    let filteredTests = testNames;
+    // Optional tag filter from input
+    let filtered = allScenarios;
     if (input?.tags && typeof input.tags === 'string') {
-      const tag = input.tags.toLowerCase();
-      filteredTests = testNames.filter(t => t.toLowerCase().includes(`@${tag}`));
+      const filterTag = (input.tags as string).toLowerCase().replace(/^@/, '');
+      filtered = allScenarios.filter(s =>
+        s.allTags.includes(filterTag)
+      );
     }
 
-    // Extract metadata for each test
-    const testMetadata: TestMetadata[] = filteredTests.map(testName => 
-      extractTestMetadata(testName, reportService)
-    );
+    // Build TestMetadata list
+    const tests: TestMetadata[] = filtered.map(s => ({
+      name: `${s.featureName} - ${s.scenarioName}`,
+      tags: s.allTags,
+      feature: featureGroupFromPath(s.filePath, featuresDir),
+      criticality: determineCriticality(s.allTags),
+      location: path.relative(config.playwrightProjectRoot, s.filePath)
+    }));
 
-    // Group by feature
-    const grouped: { [key: string]: TestMetadata[] } = {};
-    testMetadata.forEach(test => {
-      if (!grouped[test.feature]) {
-        grouped[test.feature] = [];
-      }
-      grouped[test.feature]!.push(test);
-    });
+    // Group by feature area for display
+    const grouped: Map<string, TestMetadata[]> = new Map();
+    for (const test of tests) {
+      const group = grouped.get(test.feature) ?? [];
+      group.push(test);
+      grouped.set(test.feature, group);
+    }
 
-    // Format output
-    let output = `Found ${testMetadata.length} tests:\n\n`;
+    // Format display output
+    let output = `Found ${tests.length} scenarios across ${featureFiles.length} feature files:\n\n`;
 
-    Object.entries(grouped).sort().forEach(([feature, tests]) => {
-      output += `**${feature}** (${tests.length} tests)\n`;
-      tests.forEach(test => {
-        const tagStr = test.tags.join(', ') || 'untagged';
+    for (const [feature, featureTests] of [...grouped.entries()].sort()) {
+      output += `**${feature}** (${featureTests.length} scenarios)\n`;
+      for (const test of featureTests) {
+        const tagStr = test.tags.length > 0 ? test.tags.join(', ') : 'untagged';
         output += `  • ${test.name} [${test.criticality}] (${tagStr})\n`;
-      });
-      output += '\n';
-    });
-
-    // Add summary
-    const criticalCount = testMetadata.filter(t => t.criticality === 'critical').length;
-    const smokeCount = testMetadata.filter(t => t.tags.includes('smoke')).length;
-    const regressionCount = testMetadata.filter(t => t.tags.includes('regression')).length;
-
-    output += `\n**Summary:**\n`;
-    output += `  • Critical tests: ${criticalCount}\n`;
-    output += `  • Smoke tests: ${smokeCount}\n`;
-    output += `  • Regression tests: ${regressionCount}\n`;
-    output += `  • Total tests: ${testMetadata.length}\n`;
-
-    // Return as JSON array for better parsing
-    const jsonOutput = JSON.stringify({
-      total: testMetadata.length,
-      tests: testMetadata,
-      summary: {
-        critical: criticalCount,
-        smoke: smokeCount,
-        regression: regressionCount
       }
-    }, null, 2);
+      output += '\n';
+    }
+
+    // Summary
+    const criticalCount    = tests.filter(t => t.criticality === 'critical').length;
+    const highCount        = tests.filter(t => t.criticality === 'high').length;
+    const mediumCount      = tests.filter(t => t.criticality === 'medium').length;
+    const lowCount         = tests.filter(t => t.criticality === 'low').length;
+    const productionCount  = tests.filter(t => t.tags.includes('production')).length;
+    const regressionCount  = tests.filter(t => t.tags.includes('regression')).length;
+    const stagingCount     = tests.filter(t => t.tags.includes('staging')).length;
+
+    output += `**Summary:**\n`;
+    output += `  • Critical (@production):  ${criticalCount}\n`;
+    output += `  • High (@staging):         ${highCount}\n`;
+    output += `  • Medium (@regression):    ${mediumCount}\n`;
+    output += `  • Low (feature-specific):  ${lowCount}\n`;
+    output += `  ─────────────────────────────\n`;
+    output += `  • Total:                   ${tests.length}\n\n`;
+    output += `**Tag breakdown:**\n`;
+    output += `  • @production: ${productionCount}  • @staging: ${stagingCount}  • @regression: ${regressionCount}\n`;
 
     return {
-      content: [{
-        type: 'text',
-        text: output
-      }]
+      content: [{ type: 'text', text: output }]
     };
   } catch (error: any) {
     return {
-      content: [{
-        type: 'text',
-        text: `Error listing tests: ${error.message}`
-      }],
+      content: [{ type: 'text', text: `Error listing tests: ${error.message}` }],
       isError: true
     };
   }

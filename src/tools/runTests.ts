@@ -1,191 +1,314 @@
 /**
- * MCP Tool: Run tests safely with controlled parameters
+ * MCP Tool: run_tests
+ *
+ * Executes dotnet test (UIAutomationTests / Reqnroll / NUnit / Playwright C#)
+ * and returns a structured summary of pass/fail results with screenshot paths.
+ *
+ * Inputs:
+ *   tags     – Gherkin category tags, e.g. "couponhive-ui" or ["couponhive-ui","regression"]
+ *   filter   – Raw VSTest filter, e.g. "FullyQualifiedName~BulkCoupon"
+ *   scenario – Single scenario name (auto-wrapped as FullyQualifiedName~<value>)
+ *   device   – Mobile device name for emulation, e.g. "iPhone 14", "Pixel 5", "iPad Pro 11"
+ *              Maps to the correct mobile runsettings file automatically.
+ *              Omit or leave blank for desktop mode (auto.runsettings).
+ *   workers  – Max parallel workers (capped by env config)
+ *   timeout  – Timeout hint in ms (capped by env config)
+ *
+ * Filter priority: filter > scenario > tags
+ * Device mapping:
+ *   "iPhone 14"   → mobile.runsettings
+ *   "Pixel 5"     → mobile-pixel.runsettings
+ *   "iPad Pro 11" → mobile-tablet.runsettings
+ *   (any other)   → mobile.runsettings with MOBILE_DEVICE_NAME override via env
+ *   (omitted)     → auto.runsettings (desktop)
  */
 
 import { PlaywrightService } from '../services/playwright.service.js';
 import { PolicyService } from '../services/policy.service.js';
+import { ReportService } from '../services/report.service.js';
+import { ResearchService } from '../services/research.service.js';
+import { GitService } from '../services/git.service.js';
+import { CoverageService } from '../services/coverage.service.js';
 import type { ToolInput, ToolOutput } from '../types/mcp.types.js';
+import type { ResearchReport } from '../types/research.types.js';
 import { getEnvironmentConfig } from '../config/environments.js';
+import * as path from 'path';
 
 let playwrightService: PlaywrightService | null = null;
 let policyService: PolicyService | null = null;
 
-/**
- * Initialize services
- */
 function getServices(): { playwright: PlaywrightService; policy: PolicyService } {
+  const config = getEnvironmentConfig();
   if (!playwrightService) {
-    const config = getEnvironmentConfig();
     playwrightService = new PlaywrightService({
-      projectRoot: config.playwrightProjectRoot,
+      projectRoot:     config.playwrightProjectRoot,
+      csprojFile:      config.csprojFile,
+      runSettingsFile: config.runSettingsFile,
       reportOutputDir: config.reportOutputDir
     });
   }
-
   if (!policyService) {
-    const config = getEnvironmentConfig();
-    policyService = new PolicyService(config.testEnvironment);
+    policyService = new PolicyService(config.name);
   }
-
   return { playwright: playwrightService, policy: policyService };
 }
 
 /**
- * Validate test execution request against policies
+ * Policy gate: production env only allows @production tag.
  */
-function validateExecutionRequest(
+function validateTags(
   tags: string[],
-  policyService: PolicyService
+  policy: PolicyService
 ): { valid: boolean; reason?: string } {
-  const env = policyService.getEnvironment();
-
-  // In production, only allow critical and smoke tests
-  if (env === 'production') {
-    const allowedTags = ['critical', 'smoke'];
-    const hasDisallowedTag = tags.some(tag => !allowedTags.includes(tag));
-    if (hasDisallowedTag) {
-      return {
-        valid: false,
-        reason: `Production environment only allows ${allowedTags.join(', ')} tests. You requested: ${tags.join(', ')}`
-      };
-    }
+  const config      = getEnvironmentConfig();
+  const allowed     = config.allowedTags;
+  const disallowed  = tags.filter(t => !allowed.includes(t));
+  if (disallowed.length > 0) {
+    return {
+      valid:  false,
+      reason: `Environment "${config.name}" only allows tags: [${allowed.join(', ')}].\n` +
+              `Requested tag(s) not permitted: [${disallowed.join(', ')}]`
+    };
   }
-
   return { valid: true };
 }
 
 /**
- * Format test execution output
+ * Format the TRX-parsed report into a human-readable summary.
  */
-function formatExecutionResults(report: any): string {
-  if (!report) {
-    return 'No report available. Tests may have failed to complete.';
-  }
+function formatReport(report: any, screenshots: string[]): string {
+  if (!report) return 'No TRX report found — check project path and runsettings.';
 
-  let output = `\n**Test Execution Complete**\n\n`;
-  output += `Total Tests: ${report.totalTests}\n`;
-  output += `✓ Passed: ${report.passed}\n`;
-  output += `✗ Failed: ${report.failed}\n`;
-  output += `⊘ Skipped: ${report.skipped}\n`;
-  output += `⏱ Duration: ${(report.duration / 1000).toFixed(2)}s\n\n`;
+  const passRate = report.totalTests > 0
+    ? ((report.passed / report.totalTests) * 100).toFixed(1)
+    : '0';
 
+  let out = `\n═══════════════════════════════\n`;
+  out    += ` Test Execution Results\n`;
+  out    += `═══════════════════════════════\n`;
+  out    += `Total    : ${report.totalTests}\n`;
+  out    += `✓ Passed : ${report.passed}\n`;
+  out    += `✗ Failed : ${report.failed}\n`;
+  out    += `⊘ Skipped: ${report.skipped}\n`;
+  out    += `⏱ Time   : ${(report.duration / 1000).toFixed(1)}s\n`;
+  out    += `Pass Rate: ${passRate}%\n`;
+  out    += `═══════════════════════════════\n`;
+
+  // ── Failed tests with error previews ──────────────────────────────────
   if (report.failed > 0) {
-    output += `**Failed Tests:**\n`;
     const failed = report.tests.filter((t: any) => t.status === 'failed');
-    failed.slice(0, 10).forEach((test: any) => {
-      output += `  • ${test.name}\n`;
+    out += `\n❌ Failed Tests (${failed.length}):\n`;
+    failed.slice(0, 15).forEach((test: any, i: number) => {
+      out += `\n  ${i + 1}. ${test.name}\n`;
       if (test.error) {
-        output += `    Error: ${test.error.substring(0, 100)}...\n`;
+        // Show first meaningful line of error (skip stack trace noise)
+        const firstLine = String(test.error)
+          .split('\n')
+          .find((l: string) => l.trim().length > 0) ?? '';
+        const preview = firstLine.substring(0, 150);
+        out += `     → ${preview}${firstLine.length > 150 ? '...' : ''}\n`;
       }
     });
-    if (failed.length > 10) {
-      output += `  ... and ${failed.length - 10} more\n`;
-    }
-    output += '\n';
+    if (failed.length > 15) out += `\n  ...and ${failed.length - 15} more\n`;
   }
 
-  const passRate = report.totalTests > 0 
-    ? ((report.passed / report.totalTests) * 100).toFixed(1) 
-    : '0';
-  output += `**Pass Rate: ${passRate}%**\n`;
+  // ── Screenshots written during this run ────────────────────────────────
+  if (screenshots.length > 0) {
+    out += `\n📸 Screenshots (${screenshots.length}):\n`;
+    screenshots.slice(0, 20).forEach(s => {
+      out += `  • ${s}\n`;
+    });
+    if (screenshots.length > 20) out += `  ...and ${screenshots.length - 20} more\n`;
+  }
 
-  return output;
+  // ── Passed tests (condensed) ──────────────────────────────────────────
+  if (report.passed > 0) {
+    const passed = report.tests.filter((t: any) => t.status === 'passed');
+    out += `\n✅ Passed Tests (${passed.length}):\n`;
+    passed.forEach((t: any) => {
+      out += `  • ${t.name}  (${(t.duration / 1000).toFixed(1)}s)\n`;
+    });
+  }
+
+  return out;
 }
 
-/**
- * Run Tests Tool
- * Safely executes Playwright tests with controlled parameters
- */
+function formatResearchOutput(report: ResearchReport): string {
+  const verdictIcon = { SAFE: '✅', CAUTION: '⚠️', BLOCK: '🚫' }[report.releaseVerdict];
+  let out = `\n${'═'.repeat(55)}\n`;
+  out += ` 🔬 AUTO-RESEARCH (${report.iterationsUsed} iterations)\n`;
+  out += `${'═'.repeat(55)}\n\n`;
+  out += `🚦 Verdict: ${verdictIcon} ${report.releaseVerdict}\n`;
+  out += `   ${report.verdictReason}\n\n`;
+  if (report.findings.length > 0) {
+    out += `🔍 Findings (${report.findings.length}):\n`;
+    for (const f of report.findings.slice(0, 6)) {
+      out += `  • [${f.severity}] ${f.title}\n`;
+      out += `    → ${f.suggestedAction}\n`;
+    }
+    if (report.findings.length > 6) out += `  ...and ${report.findings.length - 6} more\n`;
+  }
+  if (report.coverageGaps.length > 0) {
+    out += `\n📂 Coverage Gaps (${report.coverageGaps.length}):\n`;
+    for (const g of report.coverageGaps.slice(0, 3)) {
+      out += `  • ${g.area} — ${g.scenarioCount} scenario(s) | ${g.recommendation}\n`;
+    }
+  }
+  if (report.suggestedNextSteps.length > 0) {
+    out += `\n📋 Next Steps:\n`;
+    report.suggestedNextSteps.slice(0, 4).forEach((s, i) => out += `  ${i + 1}. ${s}\n`);
+  }
+  return out;
+}
+
+// ── Main tool export ─────────────────────────────────────────────────────────
+
 export async function runTests(input?: ToolInput): Promise<ToolOutput> {
   try {
     const { playwright, policy } = getServices();
     const config = getEnvironmentConfig();
 
-    // Parse input parameters
+    // ── Parse inputs ─────────────────────────────────────────────────────
     let tags: string[] = [];
-    let workers: number = config.workers;
-    let timeout: number = config.timeoutMs;
+    let filter   = typeof input?.filter   === 'string' ? input.filter   : '';
+    let scenario = typeof input?.scenario === 'string' ? input.scenario : '';
+    let device   = typeof input?.device   === 'string' ? input.device.trim() : '';
+    let doAutoResearch = input?.autoResearch === true;
+    let workers  = config.workers;
+    let timeout  = config.timeoutMs;
 
     if (input?.tags) {
-      tags = typeof input.tags === 'string' 
-        ? [input.tags] 
-        : Array.isArray(input.tags) ? input.tags : [];
-      // Normalize tags (remove @ prefix if present)
-      tags = tags.map(t => t.replace(/^@/, ''));
+      tags = typeof input.tags === 'string'
+        ? [input.tags]
+        : Array.isArray(input.tags) ? (input.tags as string[]) : [];
+      tags = tags.map((t: string) => t.replace(/^@/, '').toLowerCase());
     }
 
-    if (input?.workers && typeof input.workers === 'number') {
-      workers = Math.min(input.workers, config.workers); // Cap workers
+    if (typeof input?.workers === 'number') workers = Math.min(input.workers as number, config.workers);
+    if (typeof input?.timeout === 'number') timeout  = Math.min(input.timeout as number, config.timeoutMs);
+
+    // Default to all allowed tags when no filter specified
+    if (!filter && !scenario && tags.length === 0) {
+      tags = config.allowedTags;
     }
 
-    if (input?.timeout && typeof input.timeout === 'number') {
-      timeout = Math.min(input.timeout, config.timeoutMs); // Cap timeout
+    // ── Policy gate (skip for filter/scenario runs — they target specific tests) ──
+    if (!filter && !scenario && tags.length > 0) {
+      const check = validateTags(tags, policy);
+      if (!check.valid) {
+        return {
+          content: [{ type: 'text', text: `❌ Test Execution Blocked\n\n${check.reason}` }],
+          isError: true
+        };
+      }
     }
 
-    // Default to critical tests if no tags specified
-    if (tags.length === 0) {
-      tags = ['critical'];
+    // ── Resolve runsettings based on device ──────────────────────────────
+    // Maps known device names to their pre-configured runsettings files.
+    // For unlisted devices we use mobile.runsettings and pass MOBILE_DEVICE_NAME
+    // as an environment variable override so Hooks.cs picks up the custom device.
+    let runSettingsFile = config.runSettingsFile; // default: auto.runsettings (desktop)
+    let mobileEnvOverride: Record<string, string> = {};
+    const isMobileRun = device.length > 0;
+
+    if (isMobileRun) {
+      const deviceLower = device.toLowerCase();
+      if (deviceLower.includes('pixel')) {
+        runSettingsFile = 'mobile-pixel.runsettings';
+      } else if (deviceLower.includes('ipad') || deviceLower.includes('tablet')) {
+        runSettingsFile = 'mobile-tablet.runsettings';
+      } else {
+        // iPhone 14, iPhone 14 Pro Max, Galaxy S9+, Nexus 10, custom names etc.
+        runSettingsFile = 'mobile.runsettings';
+        // Pass the exact device name so Hooks.cs uses it instead of the default "iPhone 14"
+        mobileEnvOverride = {
+          MOBILE_MODE:        'true',
+          MOBILE_DEVICE_NAME: device
+        };
+      }
     }
 
-    // Validate against policies
-    const validation = validateExecutionRequest(tags, policy);
-    if (!validation.valid) {
-      return {
-        content: [{
-          type: 'text',
-          text: `⚠️ Test Execution Blocked\n\n${validation.reason}`
-        }],
-        isError: true
-      };
-    }
+    // ── Build header ─────────────────────────────────────────────────────
+    let header = `🚀 Running UIAutomationTests\n\n`;
+    header    += `Environment : ${config.name} (${config.testEnvironment})\n`;
+    header    += `Mode        : ${isMobileRun ? `📱 Mobile — ${device}` : '🖥️  Desktop'}\n`;
+    header    += `Run settings: ${runSettingsFile}\n`;
 
-    let output = `Executing tests with tags: ${tags.join(', ')}\n`;
-    output += `Environment: ${config.testEnvironment}\n`;
-    output += `Workers: ${workers}\n`;
-    output += `Timeout: ${timeout}ms\n\n`;
-    output += 'Starting Playwright...\n';
+    if (filter)        header += `Filter      : ${filter}\n`;
+    else if (scenario) header += `Scenario    : ${scenario}\n`;
+    else               header += `Tags        : ${tags.join(', ')}\n`;
 
-    // Execute tests
-    const success = playwright.runTests({
+    header += `Workers     : ${workers}\n`;
+    header += `Timeout     : ${(timeout / 1000).toFixed(0)}s\n\n`;
+    header += `⏳ Starting dotnet test — this may take several minutes...\n`;
+
+    // ── Execute (async — event loop stays alive) ──────────────────────────
+    const result = await playwright.runTests({
       tags,
+      filter,
+      scenario,
       workers,
-      timeout
+      timeout,
+      runSettingsFile,
+      envOverrides: mobileEnvOverride
     });
 
-    // Wait a moment for the report file to be written
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Get report
+    // ── Parse report and format output ────────────────────────────────────
     const report = playwright.getLatestReport();
 
+    let body: string;
     if (!report) {
-      output += '\n⚠️ Test execution completed but report file could not be read.\n';
-      output += 'This might happen if:\n';
-      output += '  • Tests have not finished writing their reports yet\n';
-      output += '  • The Playwright project path is incorrect\n';
-      output += `  • Expected reports at: ${config.reportOutputDir}\n`;
-      
-      // Try running get_failures to retrieve the report
-      output += '\nRun "get_failures" tool to analyze the results.\n';
+      body  = '\n⚠️  No TRX report was produced.\n\nPossible causes:\n';
+      body += '  • No tests matched the requested filter / tags\n';
+      body += '  • Build failed before any tests ran\n';
+      body += `  • Expected reports at: ${config.reportOutputDir}\n`;
+      body += '\nConsole output (last 2000 chars):\n';
+      body += result.consoleOutput.slice(-2000);
     } else {
-      output += formatExecutionResults(report);
+      body = formatReport(report, result.screenshots);
 
-      if (!success && report.failed === 0) {
-        output += '\n⚠️ Tests completed but some tests may have been skipped or warnings were issued.\n';
+      // ── AutoResearch (optional) ────────────────────────────────────────
+      if (doAutoResearch && report.failed > 0) {
+        try {
+          const reportService   = new ReportService(config.reportOutputDir);
+          const gitService      = new GitService(config.playwrightProjectRoot);
+          const appGitService   = config.appCodeRoot ? new GitService(config.appCodeRoot) : undefined;
+          const coverageService = new CoverageService(config.featuresDir, config.playwrightProjectRoot);
+          const researchService = new ResearchService(reportService, gitService, coverageService, config.playwrightProjectRoot, appGitService);
+          const researchReport  = await researchService.investigate(report);
+          body += '\n\n' + formatResearchOutput(researchReport);
+        } catch (researchErr: any) {
+          body += `\n\n⚠️  AutoResearch failed: ${researchErr.message}`;
+        }
+      }
+
+      if (!result.success && report.failed === 0) {
+        body += '\n⚠️  dotnet returned non-zero exit but no failing tests in TRX — ';
+        body += 'possible build warning or skipped tests.\n';
+      }
+
+      // Append brief console tail on failure so errors are visible immediately
+      if (report.failed > 0 && result.consoleOutput) {
+        const tail = result.consoleOutput.slice(-1500).trim();
+        if (tail) {
+          body += `\n\n📋 Console Output (last 1500 chars):\n\`\`\`\n${tail}\n\`\`\`\n`;
+        }
       }
     }
 
     return {
-      content: [{
-        type: 'text',
-        text: output
-      }]
+      content: [{ type: 'text', text: header + body }]
     };
+
   } catch (error: any) {
     return {
       content: [{
         type: 'text',
-        text: `Error executing tests: ${error.message}\n\nMake sure the Playwright project is properly configured and located at the expected path.`
+        text: `❌ Error executing tests: ${error.message}\n\n` +
+              `Check:\n` +
+              `  • dotnet 8 SDK is installed and on PATH\n` +
+              `  • DOTNET_PROJECT_ROOT points to the UIAutomationTests folder\n` +
+              `  • The .csproj and .runsettings files exist in that folder`
       }],
       isError: true
     };

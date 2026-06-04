@@ -21,10 +21,22 @@
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.3",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/pg": "^8.20.0",
+    "@types/xlsx": "^0.0.35",
     "express": "^5.2.1",
+    "fast-xml-parser": "^4.5.0",
+    "glob": "^13.0.6",
+    "mammoth": "^1.12.0",
+    "mssql": "^11.0.1",
+    "pdf-parse": "^2.4.5",
+    "pg": "^8.20.0",
+    "playwright": "^1.48.0",
+    "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/mssql": "^9.1.5",
     "@types/node": "^25.0.10",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"

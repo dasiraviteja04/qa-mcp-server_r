@@ -1,0 +1,224 @@
+{
+  "labels": {
+    "ClickingExportToExcelTriggersAFileDownload": {
+      "label": "Export to Excel — file downloads successfully",
+      "area": "Export"
+    },
+    "ClickingExportToExcelCreatesADOWNLOADAuditLogEntryInTheDatabase": {
+      "label": "Export to Excel — DOWNLOAD audit log is created",
+      "area": "Export"
+    },
+    "ExportedFileHasTheExpectedFilenameFormatCoupon_MMddyyyy_Xlsx": {
+      "label": "Export to Excel — filename matches Coupon_MMddyyyy.xlsx format",
+      "area": "Export"
+    },
+    "ExportForPortfolioWithNoCouponsStillTriggersAFileDownload": {
+      "label": "Export to Excel — empty portfolio still triggers a download",
+      "area": "Export"
+    },
+    "GenerateASingleCouponViaUIAndVerifyItAppearsInTheCouponList": {
+      "label": "Single generate — coupon appears in list after creation",
+      "area": "Generate"
+    },
+    "CreateSingleCouponViaUISavesCouponAndShowsItInTheList": {
+      "label": "Single generate — saved coupon shows in the list",
+      "area": "Generate"
+    },
+    "CreateSingleCouponStoresCouponNameEqualToCouponCode": {
+      "label": "Single generate — coupon name equals coupon code",
+      "area": "Generate"
+    },
+    "CreateSingleCouponPersistsCorrectRateAndEndDateInTheDatabase": {
+      "label": "Single generate — correct rate and end date saved to database",
+      "area": "Generate"
+    },
+    "BulkGenerationViaUIShowsGeneratedCouponsInTheCouponList": {
+      "label": "Bulk generate — all coupons appear in the list",
+      "area": "Bulk Generate"
+    },
+    "BulkGenerationProducesAllUniqueCouponCodes": {
+      "label": "Bulk generate — all codes are unique",
+      "area": "Bulk Generate"
+    },
+    "BulkGenerationViaUICreatesExactly16CouponsInTheDatabase": {
+      "label": "Bulk generate — exactly 16 coupons created in database",
+      "area": "Bulk Generate"
+    },
+    "BulkGenerationProducesCouponsWithAll4ExpectedDiscountRates": {
+      "label": "Bulk generate — all 4 expected discount rates present",
+      "area": "Bulk Generate"
+    },
+    "BatchModeGeneratesCouponsWithMinimumValidCodeLengthOf8": {
+      "label": "Bulk generate — codes meet minimum length of 8",
+      "area": "Bulk Generate"
+    },
+    "BatchModeGeneratesCouponsWithMaximumValidCodeLengthOf12": {
+      "label": "Bulk generate — codes do not exceed maximum length of 12",
+      "area": "Bulk Generate"
+    },
+    "CreatingASingleCouponViaUIWritesACREATEAuditLogEntry": {
+      "label": "Audit — single coupon creation writes a CREATE audit log",
+      "area": "Audit"
+    },
+    "AllCREATEAuditLogsForBatchGenerationHaveBulkOrSingleSetToBulk": {
+      "label": "Audit — bulk generated coupons have BulkOrSingle = Bulk",
+      "area": "Audit"
+    },
+    "BatchGenerationWritesExactly16CREATEAuditLogsOnePerGeneratedCoupon": {
+      "label": "Audit — 16 CREATE audit logs written for 16 bulk coupons",
+      "area": "Audit"
+    },
+    "UpdateEndDateViaUICreatesAnEDITAuditLogEntry": {
+      "label": "Audit — updating end date creates an EDIT audit log",
+      "area": "Audit"
+    },
+    "TheCREATEAuditLogDiscountRateMatchesTheRateEnteredInTheUIForm": {
+      "label": "Audit — CREATE audit log rate matches rate entered in form",
+      "area": "Audit"
+    },
+    "CREATEAuditLogBulkOrSingleIsSingleRegardlessOfDiscountRate": {
+      "label": "Audit — single coupon has BulkOrSingle = Single for any rate",
+      "area": "Audit"
+    },
+    "UpdateEndDateViaUIPersistsNewDateInTheDatabase": {
+      "label": "Edit — updated end date is saved to database",
+      "area": "Edit"
+    },
+    "UpdatedEndDateIsReflectedInTheCouponListTable": {
+      "label": "Edit — updated end date appears in the coupon list",
+      "area": "Edit"
+    },
+    "BulkEditOfMultipleCouponsUpdatesBothEndDatesInTheDatabase": {
+      "label": "Edit — bulk edit updates end dates for all selected coupons",
+      "area": "Edit"
+    },
+    "SettingAPastEndDateInBulkEditDoesNotChangeTheDatabaseRecord": {
+      "label": "Edit — past end date in bulk edit is rejected (no DB change)",
+      "area": "Edit"
+    },
+    "SettingEndDateBeforeCouponStartDateDoesNotChangeTheDatabaseRecord": {
+      "label": "Edit — end date before start date is rejected (no DB change)",
+      "area": "Edit"
+    },
+    "SettingEndDateEqualToStartDateIsAlsoRejectedWhenStartDateIsInTheFuture": {
+      "label": "Edit — end date equal to future start date is rejected",
+      "area": "Edit"
+    },
+    "ActiveOnlyFilterHidesANotYetActiveCouponFromTheList": {
+      "label": "Filter — Active Only hides not-yet-active coupons",
+      "area": "Filter & Search"
+    },
+    "ActiveOnlyFilterHidesExpiredCouponsFromTheList": {
+      "label": "Filter — Active Only hides expired coupons",
+      "area": "Filter & Search"
+    },
+    "ActiveOnlyFilterHidesBothExpiredAndNot_Yet_ActiveCouponsSimultaneously": {
+      "label": "Filter — Active Only hides both expired and future coupons",
+      "area": "Filter & Search"
+    },
+    "DisablingActiveOnlyFilterShowsBothActiveAndNot_Yet_ActiveCoupons": {
+      "label": "Filter — disabling Active Only shows all coupon states",
+      "area": "Filter & Search"
+    },
+    "SearchingByCouponCodeFiltersTheTableToMatchingResults": {
+      "label": "Search — searching by code filters the table correctly",
+      "area": "Filter & Search"
+    },
+    "SearchingForANon_ExistentCodeShowsTheEmptyStateMessage": {
+      "label": "Search — non-existent code shows empty state message",
+      "area": "Filter & Search"
+    },
+    "FilterCouponListByPortfolioShowsOnlyThatTenantsCoupons": {
+      "label": "Filter — portfolio filter shows only that tenant's coupons",
+      "area": "Filter & Search"
+    },
+    "SelectingAPortfolioWithNoCouponsShowsTheEmptyStateMessage": {
+      "label": "Filter — portfolio with no coupons shows empty state",
+      "area": "Filter & Search"
+    },
+    "SelectingAPortfolioShowsTheTenantsCouponsInTheTable": {
+      "label": "Navigation — selecting a portfolio loads the coupon list",
+      "area": "Navigation"
+    },
+    "BackToCouponListButtonReturnsToTheListPage": {
+      "label": "Navigation — Back to List button returns to coupon list",
+      "area": "Navigation"
+    },
+    "UIEnforcesValidModeOptionsOnlySingleAndBatchAreAvailable": {
+      "label": "Navigation — only Single and Batch modes are available",
+      "area": "Navigation"
+    },
+    "CreatingACouponWithAnExistingACTIVECodeDoesNotInsertADuplicateRow": {
+      "label": "Duplicate check — active code cannot be duplicated",
+      "area": "Duplicate Prevention"
+    },
+    "CreatingACouponWithAnExistingINACTIVECodeDoesNotInsertADuplicateRow": {
+      "label": "Duplicate check — inactive code cannot be duplicated",
+      "area": "Duplicate Prevention"
+    },
+    "CreatingACouponWithAnExistingACTIVECodeRetainsTheORIGINALDiscountRateInTheDatabase": {
+      "label": "Duplicate check — original rate is preserved when code already exists",
+      "area": "Duplicate Prevention"
+    },
+    "Cross_TenantCouponCodeIsolationPreservesEachTenantsDiscountRateIndependently": {
+      "label": "Multi-tenant — each tenant's discount rate is isolated",
+      "area": "Multi-Tenant"
+    },
+    "CreatingTheSameCouponCodeInASecondTenantCreatesANewIndependentRow": {
+      "label": "Multi-tenant — same code in different tenant creates a new row",
+      "area": "Multi-Tenant"
+    },
+    "AnInactiveTenantDoesNotAppearInThePortfolioDropdown": {
+      "label": "Tenant status — inactive tenant hidden from portfolio dropdown",
+      "area": "Multi-Tenant"
+    },
+    "Re_ActivatingAnInactiveTenantMakesItAppearInThePortfolioDropdown": {
+      "label": "Tenant status — re-activated tenant appears in portfolio dropdown",
+      "area": "Multi-Tenant"
+    },
+    "CreateCouponsWithDifferentValidDiscountRatesViaUI": {
+      "label": "Rate validation — valid discount rates are accepted",
+      "area": "Rate Validation"
+    },
+    "ValidBoundaryRatesAreAcceptedAndStoredWithCorrectPrecision": {
+      "label": "Rate validation — boundary rates stored with correct precision",
+      "area": "Rate Validation"
+    },
+    "RateWithThreeDecimalPlaces100_001IsRoundedByTheDatabaseToTwoDecimalPlaces": {
+      "label": "Rate validation — three decimal places rounded to two by database",
+      "area": "Rate Validation"
+    },
+    "Non_NumericRateInputIsFilteredByTheBrowserSaveCouponButtonIsDisabled": {
+      "label": "Rate validation — non-numeric input filtered; Save button disabled",
+      "area": "Rate Validation"
+    },
+    "EmptyRateFieldPreventsSaveCouponButtonIsDisabled": {
+      "label": "Rate validation — empty rate field disables Save button",
+      "area": "Rate Validation"
+    },
+    "Whitespace_OnlyRateInputIsTreatedAsEmptySaveCouponButtonIsDisabled": {
+      "label": "Rate validation — whitespace-only rate disables Save button",
+      "area": "Rate Validation"
+    },
+    "ZeroRate0IsBelowMinimumSaveCouponButtonIsDisabled": {
+      "label": "Rate validation — zero rate disables Save button (below minimum)",
+      "area": "Rate Validation"
+    },
+    "NegativeRateIsRejectedByAngularValidationSaveCouponButtonIsDisabled": {
+      "label": "Rate validation — negative rate disables Save button",
+      "area": "Rate Validation"
+    },
+    "RateBelowMinimum100IsRejectedByAngularValidationSaveCouponButtonIsDisabled": {
+      "label": "Rate validation — rate below minimum (100) disables Save button",
+      "area": "Rate Validation"
+    },
+    "RateAboveMaximum800IsRejectedByAngularValidationSaveCouponButtonIsDisabled": {
+      "label": "Rate validation — rate above maximum (800) disables Save button",
+      "area": "Rate Validation"
+    },
+    "AuditLogDiscountRateMatchesCouponsRateDiscountForValidBoundaryRates": {
+      "label": "Rate audit — audit log rate matches coupon rate for boundary values",
+      "area": "Rate Validation"
+    }
+  }
+}
